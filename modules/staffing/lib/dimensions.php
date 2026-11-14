@@ -176,9 +176,11 @@ function staffingAssignmentDimensionContext(
         throw new \InvalidArgumentException('tenantId and placementId are required');
     }
     $pdo = getDB();
-    $placementsTenantId = effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId;
-    $peopleTenantId = effectiveTenantIdForModule('people', $tenantId) ?? $tenantId;
-    $accountingTenantId = effectiveTenantIdForModule('accounting', $tenantId) ?? $tenantId;
+    $locked = class_exists('StaffingNativeTimeEdit',false) && StaffingNativeTimeEdit::active() && $tenantId===staffingTimeWorkspace();
+    $lock = $locked ? ' FOR UPDATE' : '';
+    $placementsTenantId = $locked ? StaffingNativeTimeEdit::owner('placements') : (effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId);
+    $peopleTenantId = $locked ? StaffingNativeTimeEdit::owner('people') : (effectiveTenantIdForModule('people', $tenantId) ?? $tenantId);
+    $accountingTenantId = $locked ? StaffingNativeTimeEdit::lockOwner('accounting') : (effectiveTenantIdForModule('accounting', $tenantId) ?? $tenantId);
 
     $stmt = $pdo->prepare(
         'SELECT p.id, p.external_id, p.person_id, p.engagement_type,
@@ -207,7 +209,7 @@ function staffingAssignmentDimensionContext(
           WHERE p.tenant_id = :placements_tenant_id
             AND p.id = :placement_id
             AND p.deleted_at IS NULL
-          LIMIT 1'
+          LIMIT 1'.$lock
     );
     $stmt->execute([
         'people_tenant_id' => $peopleTenantId,
@@ -228,7 +230,7 @@ function staffingAssignmentDimensionContext(
             AND role IN ('recruiter','account_manager')
             AND effective_from <= :as_of
             AND (effective_to IS NULL OR effective_to >= :as_of_2)
-          ORDER BY effective_from DESC, id DESC"
+          ORDER BY effective_from DESC, id DESC".$lock
     );
     $ownerStmt->execute([
         'tenant_id' => $placementsTenantId,
@@ -262,7 +264,7 @@ function staffingAssignmentDimensionContext(
             AND (effective_to IS NULL OR effective_to >= :as_of_2)
           ORDER BY CASE WHEN company_id = :preferred_vendor_company_id THEN 0 ELSE 1 END,
                    {$vendorPriority}, id
-          LIMIT 1"
+          LIMIT 1".$lock
     );
     $vendorStmt->execute([
         'tenant_id' => $placementsTenantId,
@@ -286,7 +288,7 @@ function staffingAssignmentDimensionContext(
                 AND placement_id = :placement_id
                 AND start_date <= :as_of
                 AND (end_date IS NULL OR end_date >= :as_of_2)
-              ORDER BY id DESC LIMIT 1"
+              ORDER BY id DESC LIMIT 1".$lock
         );
         $refStmt->execute([
             'tenant_id' => $placementsTenantId,
@@ -318,13 +320,13 @@ function staffingAssignmentDimensionContext(
     $entityLookup = $pdo->prepare(
         'SELECT id FROM accounting_entities
           WHERE tenant_id = :tenant_id AND id = :id AND active = 1
-          LIMIT 1'
+          LIMIT 1'.$lock
     );
-    foreach (array_unique([
-        (int) ($placement['accounting_entity_id'] ?? 0),
-        (int) ($placement['person_entity_id'] ?? 0),
-        $eventEntityId,
-    ]) as $candidateEntityId) {
+    $candidates = $locked
+        ? [(int)($placement['accounting_entity_id'] ?: ($placement['person_entity_id'] ?? 0))]
+        : array_unique([(int)($placement['accounting_entity_id'] ?? 0),(int)($placement['person_entity_id'] ?? 0),$eventEntityId]);
+    // Approval cannot fall back to another entity if the assigned employer was retired or moved.
+    foreach ($candidates as $candidateEntityId) {
         if ($candidateEntityId <= 0) continue;
         $entityLookup->execute([
             'tenant_id' => $accountingTenantId,

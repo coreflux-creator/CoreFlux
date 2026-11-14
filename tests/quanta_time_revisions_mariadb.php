@@ -40,6 +40,12 @@ $pdo->exec('CREATE TABLE payroll_native_observations(id BIGINT PRIMARY KEY,tenan
 $pdo->exec('CREATE TABLE accounting_entities(id BIGINT PRIMARY KEY,tenant_id BIGINT,active BOOLEAN)');
 $pdo->exec('INSERT INTO accounting_entities VALUES(1,1,1)');
 $pdo->exec('ALTER TABLE people ADD entity_id BIGINT NULL');
+$pdo->exec('ALTER TABLE core_record_numbers ADD canonical_record_id BIGINT NULL,ADD aliased_at DATETIME NULL');
+$pdo->exec('UPDATE core_record_numbers SET canonical_record_id=record_id');
+$pdo->exec('CREATE TABLE companies(id BIGINT PRIMARY KEY,tenant_id BIGINT,deleted_at DATETIME NULL)');
+$pdo->exec('INSERT INTO companies VALUES(10,1,NULL)');
+$pdo->exec('CREATE TABLE users(id BIGINT PRIMARY KEY,email VARCHAR(255))');
+$pdo->exec('INSERT INTO users VALUES(7,"creator@example.invalid"),(8,"prior-reviewer@example.invalid"),(9,"reviewer@example.invalid"),(12,"sibling-reviewer@example.invalid")');
 $pdo->exec('ALTER TABLE placements ADD external_id VARCHAR(80), ADD end_client_company_id BIGINT, ADD client_id BIGINT,
     ADD staffing_job_id BIGINT, ADD jobdiva_job_id VARCHAR(80), ADD recruiter_name VARCHAR(80), ADD recruiter_email VARCHAR(120),
     ADD account_manager_name VARCHAR(80), ADD account_manager_email VARCHAR(120), ADD worksite_state VARCHAR(40),

@@ -91,9 +91,9 @@ if ($method === 'POST' && $action !== '') {
 
         $isApprove = $action === 'bulk_approve';
         if ($isApprove) {
-            rbac_legacy_require($user, 'time.approve');
+            api_require_legacy_permission($ctx, 'time.approve');
         } else {
-            rbac_legacy_require($user, 'time.reject');
+            api_require_legacy_permission($ctx, 'time.reject');
             if (trim((string) ($body['reason'] ?? '')) === '') api_error('reason required', 422);
         }
 
@@ -130,7 +130,7 @@ if ($method === 'POST' && $action !== '') {
     if (!$entry) api_error('Entry not found', 404);
 
     if ($action === 'approve') {
-        rbac_legacy_require($user, 'time.approve');
+        api_require_legacy_permission($ctx, 'time.approve');
         try {
             $approvedEntry = timeApproveEntry($id, $user, 'manual');
         } catch (Throwable $e) {$failure=timeApiFailure($e);api_error($failure['message'],$failure['status']);}
@@ -138,7 +138,7 @@ if ($method === 'POST' && $action !== '') {
     }
 
     if ($action === 'reject') {
-        rbac_legacy_require($user, 'time.reject');
+        api_require_legacy_permission($ctx, 'time.reject');
         $body = api_json_body();
         api_require_fields($body, ['reason']);
         try {

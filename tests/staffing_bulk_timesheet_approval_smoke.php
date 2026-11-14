@@ -16,6 +16,7 @@ $assert = function (string $label, bool $ok) use (&$pass, &$fail): void {
 $read = static fn (string $path): string => (string) file_get_contents($path);
 
 $lib = $read(__DIR__ . '/../modules/staffing/lib/timesheets.php');
+$review = $read(__DIR__ . '/../modules/time/lib/native_review.php');
 $api = $read(__DIR__ . '/../modules/staffing/api/timesheets.php');
 $ui = $read(__DIR__ . '/../modules/staffing/ui/StaffingApprovals.jsx');
 
@@ -27,19 +28,22 @@ $assert('locks every selected header before validation',
     str_contains($lib, 'function staffingTimesheetLockHeaders')
     && str_contains($lib, 'FOR UPDATE'));
 $assert('approval rejects time entered or imported by the reviewer',
-    str_contains($lib, "created_by_user_id'] ?? 0) === \$userId")
-    && str_contains($lib, 'requires a different approver'));
+    str_contains($lib, 'timeNativeApprovalSnapshot($entry,$userId)')
+    && str_contains($review, "created_by_user_id']??0)===\$actor")
+    && str_contains($review, 'requires a different approver'));
 $assert('approval resolves an approved rate for every row',
-    str_contains($lib, 'timeResolveRateSnapshot(')
-    && str_contains($lib, 'has no approved rate covering'));
+    str_contains($lib, 'timeNativeApprovalSnapshot($entry,$userId)')
+    && str_contains($review, 'timeResolveRateSnapshot(')
+    && str_contains($review, 'No approved rate covers'));
 $assert('bulk approval validates every week before applying updates',
     (bool) preg_match(
         '/function staffingTimesheetBulkApprove.*?\$plans\[\(int\) \$header\[\'id\'\]\] = staffingTimesheetApprovalPlan.*?foreach \(\$plans as \$headerId => \$snapshots\).*?staffingTimesheetApplyApproval/s',
         $lib
     ));
 $assert('entry updates detect concurrent changes',
-    str_contains($lib, '$upd->rowCount() !== 1')
-    && str_contains($lib, 'changed while the timesheet was being approved'));
+    str_contains($lib, 'timeNativeWriteApproval(timeEntryGet(')
+    && str_contains($review, '$q->rowCount()!==1')
+    && str_contains($lib, 'staffingDimensionSnapshotCanonicalJson($current)!==staffingDimensionSnapshotCanonicalJson($snapshots)'));
 $assert('accounting events run only after the approval transaction commits',
     (bool) preg_match('/function staffingTimesheetBulkApprove.*?cf_tx_commit\(\$pdo, \$ownsTxn\).*?staffingEmitWorkerHoursApprovedEvent/s', $lib));
 $assert('bulk rejection is atomic and requires one reason',

@@ -52,7 +52,7 @@ function staffingSettings(): array {
 
 function staffingPeopleTenantId(?int $tenantId = null): ?int
 {
-    if (($tenantId===null || $tenantId===currentTenantId()) && StaffingNativeTimeEdit::active()) return StaffingNativeTimeEdit::owner('people');
+    if (StaffingNativeTimeEdit::active() && ($tenantId===null || $tenantId===staffingTimeWorkspace())) return StaffingNativeTimeEdit::owner('people');
     $tenantId = $tenantId ?? currentTenantId();
     if (!$tenantId) return null;
     try {
@@ -64,7 +64,7 @@ function staffingPeopleTenantId(?int $tenantId = null): ?int
 
 function staffingPlacementsTenantId(?int $tenantId = null): ?int
 {
-    if (($tenantId===null || $tenantId===currentTenantId()) && StaffingNativeTimeEdit::active()) return StaffingNativeTimeEdit::owner('placements');
+    if (StaffingNativeTimeEdit::active() && ($tenantId===null || $tenantId===staffingTimeWorkspace())) return StaffingNativeTimeEdit::owner('placements');
     $tenantId = $tenantId ?? currentTenantId();
     if (!$tenantId) return null;
     try {
@@ -828,216 +828,81 @@ function staffingTimesheetLockHeaders(array $ids): array {
 
 /** Validate a submitted header and resolve every entry's approved rate. */
 function staffingTimesheetApprovalPlan(?int $userId, array $header, ?int $tenantId = null): array {
-    $headerId = (int) ($header['id'] ?? 0);
-    $tenantId = $tenantId ?? currentTenantId();
-    if (!$tenantId) throw new \RuntimeException('A tenant is required to approve a timesheet.');
-    if (($header['status'] ?? '') !== 'submitted') {
-        throw new \RuntimeException("Timesheet #{$headerId} is {$header['status']}; only submitted timesheets can be approved.");
-    }
-    if ($userId !== null && $userId > 0 && (int) ($header['worker_user_id'] ?? 0) === $userId) {
-        throw new \RuntimeException("Timesheet #{$headerId} requires a different approver.");
-    }
-    staffingTimesheetRequirePositiveEntries($headerId, 'approve', $tenantId);
-
-    $entryStmt = getDB()->prepare(
-        'SELECT id, placement_id, work_date, hours, status, created_by_user_id,
-                approved_at, approved_by_user_id, approved_via, rate_snapshot_id,
-                dimension_snapshot_json, dimension_snapshot_hash
-           FROM time_entries
-          WHERE tenant_id = :tenant_id
-            AND timesheet_id = :tid
-            AND status != "superseded"
-          ORDER BY work_date, id
-          FOR UPDATE'
-    );
-    $entryStmt->execute(['tenant_id' => $tenantId, 'tid' => $headerId]);
-    $entries = $entryStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-    if (!$entries) {
-        throw new \RuntimeException("Timesheet #{$headerId} has no time entries.");
-    }
-
-    $snapshots = [];
-    $accountingTenantId = effectiveTenantIdForModule('accounting', $tenantId) ?? $tenantId;
-    $entityStmt = getDB()->prepare(
-        'SELECT id FROM accounting_entities
-          WHERE tenant_id = :tenant_id AND active = 1
-          ORDER BY id LIMIT 1'
-    );
-    $entityStmt->execute(['tenant_id' => $accountingTenantId]);
-    $defaultEntityId = (int) ($entityStmt->fetchColumn() ?: 0);
-    if ($defaultEntityId <= 0) {
-        throw new \RuntimeException('Set up an active legal entity before approving time.');
-    }
-    $dimensionReadiness = [];
-    $referralFeeStmt = getDB()->prepare(
-        "SELECT COALESCE(SUM(fee_flat), 0) FROM placement_referrals
-          WHERE tenant_id = :tenant_id AND placement_id = :placement_id
-            AND fee_basis = 'per_hour' AND start_date <= :work_date
-            AND (end_date IS NULL OR end_date >= :work_date_end)"
-    );
-    foreach ($entries as $entry) {
-        $entryId = (int) $entry['id'];
-        if ((float) $entry['hours'] <= 0) {
-            throw new \RuntimeException("Timesheet #{$headerId} contains a zero-hour entry (#{$entryId}).");
+    require_once __DIR__.'/../../time/lib/native_review.php';
+    $tenantId=$tenantId??staffingTimeWorkspace();
+    return StaffingNativeTimeEdit::runForWorkspace($tenantId,static function()use($userId,$header,$tenantId):array {
+        $headerId=(int)($header['id']??0);
+        $current=staffingTimesheetRow($tenantId,$headerId,true);
+        if (!$current || $current['status']!=='submitted') throw new RuntimeException('Only submitted timesheets can be approved.',409);
+        foreach ($current as $field=>$value) {
+            if (array_key_exists($field,$header) && $header[$field]!==$value) throw new RuntimeException('The timesheet changed. Refresh and review it again.',409);
         }
-        // A source correction can leave independently approved siblings in the same week.
-        // Preserve their frozen evidence and approve only the replacement pending rows.
-        if ($entry['status']==='approved') {
-            if (empty($entry['approved_at']) || empty($entry['rate_snapshot_id']) || empty($entry['approved_via'])
-                || (empty($entry['approved_by_user_id']) && $entry['approved_via']!=='tokenized_client_email')
-                || empty($entry['dimension_snapshot_json']) || empty($entry['dimension_snapshot_hash'])
-                || !hash_equals($entry['dimension_snapshot_hash'],hash('sha256',$entry['dimension_snapshot_json']))) {
-                throw new \RuntimeException("Entry #{$entryId} has incomplete prior approval evidence. Review that entry separately.");
+        if ($userId!==null && (int)($current['worker_user_id']??0)===$userId) throw new RuntimeException('This timesheet requires a different approver.',403);
+        staffingTimesheetValidateWeek((int)$current['person_id'],$current['period_start'],$current['period_end']);
+        staffingTimesheetRequirePositiveEntries($headerId, 'approve', $tenantId);
+        $entries=staffingTimeQuery('SELECT * FROM time_entries WHERE tenant_id=:tenant_id AND timesheet_id=:id AND status!="superseded" ORDER BY id',['id'=>$headerId]);
+        $snapshots=[];
+        foreach ($entries as $entry) {
+            if ((int)$entry['person_id']!==(int)$current['person_id']) throw new RuntimeException('Review the original worker on every entry in this week.',409);
+            if ($entry['status']==='approved') {
+                if (empty($entry['approved_at']) || empty($entry['rate_snapshot_id']) || empty($entry['approved_via'])
+                    || (empty($entry['approved_by_user_id']) && $entry['approved_via']!=='tokenized_client_email')
+                    || empty($entry['dimension_snapshot_json']) || empty($entry['dimension_snapshot_hash'])
+                    || !hash_equals($entry['dimension_snapshot_hash'],hash('sha256',$entry['dimension_snapshot_json']))) {
+                    throw new RuntimeException('Review this entry’s incomplete prior approval evidence.',409);
+                }
+                continue;
             }
-            continue;
+            $snapshots[(int)$entry['id']]=timeNativeApprovalSnapshot($entry,$userId);
         }
-        if (($entry['status'] ?? '') !== 'pending_review') {
-            throw new \RuntimeException(
-                "Timesheet #{$headerId} contains entry #{$entryId} in {$entry['status']} status. Refresh the week before approving it."
-            );
-        }
-        if ($userId !== null && $userId > 0 && (int) ($entry['created_by_user_id'] ?? 0) === $userId) {
-            throw new \RuntimeException("Timesheet #{$headerId} requires a different approver because you entered or imported its time.");
-        }
-        $snap = timeResolveRateSnapshot((int) $entry['placement_id'], (string) $entry['work_date'], $tenantId);
-        if (!$snap || empty($snap['id'])) {
-            throw new \RuntimeException(
-                "Timesheet #{$headerId}, entry #{$entryId} has no approved rate covering {$entry['work_date']} for placement #{$entry['placement_id']}."
-            );
-        }
-        $placementId = (int) $entry['placement_id'];
-        $readinessKey = $placementId . ':' . (string) $entry['work_date'];
-        if (!isset($dimensionReadiness[$readinessKey])) {
-            $dimensionContext = staffingAssignmentDimensionContext(
-                $tenantId,
-                $placementId,
-                $defaultEntityId,
-                (string) $entry['work_date']
-            );
-            $missing = staffingDimensionBlockingMissing($dimensionContext, 'time');
-            if ($missing) {
-                throw new \RuntimeException(
-                    "Complete placement #{$placementId} before approving time. Missing: "
-                    . implode(', ', staffingDimensionMissingLabels($missing))
-                    . '. You can update these fields in the placement or by CSV import.'
-                );
-            }
-            $dimensions = (array) ($dimensionContext['dimensions'] ?? []);
-            ksort($dimensions);
-            $engagementType = (string) ($dimensionContext['placement']['engagement_type'] ?? '');
-            $referralFee = null;
-            if ($engagementType === 'referral') {
-                $referralFeeStmt->execute([
-                    'tenant_id' => staffingPlacementsTenantId($tenantId) ?? $tenantId,
-                    'placement_id' => $placementId,
-                    'work_date' => (string) $entry['work_date'],
-                    'work_date_end' => (string) $entry['work_date'],
-                ]);
-                $referralFee = number_format((float) $referralFeeStmt->fetchColumn(), 4, '.', '');
-            }
-            $dimensionReadiness[$readinessKey] = [
-                'dimensions' => $dimensions,
-                'vendor_dimension' => $dimensionContext['vendor_dimension'] ?? null,
-                'vendor_economic_party_id' => $dimensionContext['vendor_economic_party_id'] ?? null,
-                'vendor_company_id' => $dimensionContext['vendor_company_id'] ?? null,
-                'vendor_ap_id' => $dimensionContext['vendor_ap_id'] ?? null,
-                'event_entity_id' => $dimensionContext['event_entity_id'] ?? null,
-                'engagement_type' => $engagementType,
-                'referral_fee_per_hour' => $referralFee,
-                'missing' => $dimensionContext['missing'] ?? [],
-            ];
-        }
-        $snapshots[$entryId] = [
-            'rate_id' => (int) $snap['id'],
-            'dimensions' => $dimensionReadiness[$readinessKey],
-        ];
-    }
-    if (!$snapshots) throw new \RuntimeException('This week has no pending entries to approve. Refresh its status.');
-    return $snapshots;
+        if (!$snapshots) throw new RuntimeException('This week has no pending entries to approve. Refresh its status.',409);
+        $revision=hash('sha256',staffingDimensionSnapshotCanonicalJson(['header'=>$current,'entries'=>$entries,'snapshots'=>$snapshots]));
+        foreach ($snapshots as &$snapshot) $snapshot['week_revision']=$revision;
+        unset($snapshot);
+        return $snapshots;
+    });
 }
 
-/** Apply a prevalidated approval plan inside the caller's transaction. */
+/** Revalidate the entire reviewed plan before any approval write. */
 function staffingTimesheetApplyApproval(?int $userId, int $headerId, array $snapshots, array $options = []): void {
-    $pdo = getDB();
-    $tenantId = (int) ($options['tenant_id'] ?? currentTenantId());
-    if ($tenantId <= 0) throw new \RuntimeException('A tenant is required to approve a timesheet.');
-    $headerVia = (string) ($options['header_approved_via'] ?? 'internal_app');
-    $entryVia = (string) ($options['entry_approved_via'] ?? 'manual');
-    if (!in_array($headerVia, ['internal_app', 'external_email'], true)) {
-        throw new \InvalidArgumentException('Unsupported timesheet approval channel.');
-    }
-    if (!in_array($entryVia, ['manual', 'tokenized_client_email', 'bulk_pre_approved'], true)) {
-        throw new \InvalidArgumentException('Unsupported time-entry approval channel.');
-    }
-    require_once __DIR__.'/../../../core/quanta/time_current.php';
-    $sourceIds=$pdo->prepare('SELECT id FROM time_entries WHERE tenant_id=? AND timesheet_id=? AND status<>"superseded" ORDER BY id FOR UPDATE');
-    $sourceIds->execute([$tenantId,$headerId]);
-    $sourceCheck = quantaTimeAssertCurrent($pdo, $tenantId, array_map('intval',$sourceIds->fetchAll(PDO::FETCH_COLUMN)));
-    $headerUpdate = $pdo->prepare(
-        "UPDATE staffing_timesheets
-            SET status = 'approved',
-                approved_at = NOW(),
-                approved_by_user_id = :user_id,
-                approved_via = :approved_via,
-                external_approver_email = :external_email,
-                approval_note = :approval_note,
-                rejected_at = NULL,
-                rejected_by_user_id = NULL,
-                rejection_reason = NULL
-          WHERE tenant_id = :tenant_id
-            AND id = :id
-            AND status = 'submitted'"
-    );
-    $headerUpdate->execute([
-        'user_id'       => $userId,
-        'approved_via'  => $headerVia,
-        'external_email'=> $options['external_approver_email'] ?? null,
-        'approval_note' => $options['approval_note'] ?? null,
-        'tenant_id'     => $tenantId,
-        'id'            => $headerId,
-    ]);
-    if ($headerUpdate->rowCount() !== 1) {
-        throw new \RuntimeException("Timesheet #{$headerId} changed while it was being approved. Refresh and try again.");
-    }
-    $upd = $pdo->prepare(
-        "UPDATE time_entries
-            SET status = 'approved',
-                rate_snapshot_id = :rid,
-                dimension_snapshot_json = :dimension_snapshot,
-                dimension_snapshot_hash = :dimension_hash,
-                approved_at = NOW(),
-                approved_by_user_id = :u,
-                approved_via = :approved_via,
-                rejected_reason = NULL
-          WHERE tenant_id = :t
-            AND timesheet_id = :tid
-            AND id = :id
-            AND status = 'pending_review'"
-    );
-    foreach ($snapshots as $entryId => $snapshot) {
-        $dimensionJson = staffingDimensionSnapshotCanonicalJson($snapshot['dimensions']);
-        $upd->execute([
-            't' => $tenantId,
-            'tid' => $headerId,
-            'id' => $entryId,
-            'rid' => $snapshot['rate_id'],
-            'dimension_snapshot' => $dimensionJson,
-            'dimension_hash' => hash('sha256', $dimensionJson),
-            'u' => $userId,
-            'approved_via' => $entryVia,
-        ]);
-        if ($upd->rowCount() !== 1) {
-            throw new \RuntimeException("Entry #{$entryId} changed while the timesheet was being approved. Refresh and try again.");
+    require_once __DIR__.'/../../time/lib/native_review.php';
+    $tenantId=(int)($options['tenant_id']??staffingTimeWorkspace());
+    StaffingNativeTimeEdit::runForWorkspace($tenantId,static function()use($userId,$headerId,$snapshots,$options,$tenantId):void {
+        $headerVia=(string)($options['header_approved_via']??'internal_app');
+        $entryVia=(string)($options['entry_approved_via']??'manual');
+        if (!in_array($headerVia,['internal_app','external_email'],true)) throw new InvalidArgumentException('Unsupported timesheet approval channel.');
+        if (($userId===null)!==($headerVia==='external_email') || ($headerVia==='external_email')!==($entryVia==='tokenized_client_email')) throw new RuntimeException('The approval identity does not match its channel.',422);
+        $header=staffingTimesheetRow($tenantId,$headerId,true);
+        if (!$header) throw new RuntimeException('Timesheet not found',404);
+        $current=staffingTimesheetApprovalPlan($userId,$header,$tenantId);
+        if (staffingDimensionSnapshotCanonicalJson($current)!==staffingDimensionSnapshotCanonicalJson($snapshots)) throw new RuntimeException('The reviewed time, rates or dimensions changed. Review the complete week again.',409);
+        require_once __DIR__.'/../../../core/quanta/time_current.php';
+        $sourceRows=staffingTimeQuery('SELECT id FROM time_entries WHERE tenant_id=:tenant_id AND timesheet_id=:id AND status!="superseded" ORDER BY id',['id'=>$headerId]);
+        $sourceCheck=quantaTimeAssertCurrent(getDB(),$tenantId,array_map('intval',array_column($sourceRows,'id')));
+        // Source verification is read-only, but its transport must not be able to invalidate the planned state.
+        if (staffingDimensionSnapshotCanonicalJson(staffingTimesheetApprovalPlan($userId,$header,$tenantId))!==staffingDimensionSnapshotCanonicalJson($snapshots)) throw new RuntimeException('Time changed during source verification. Review it again.',409);
+        foreach ($snapshots as $entryId=>$snapshot) {
+            timeNativeWriteApproval(timeEntryGet((int)$entryId),$snapshot,$userId,$entryVia,[
+                'client_approver_email'=>$options['external_approver_email']??null,
+                'approval_token_id'=>$options['approval_token_id']??null,
+                'quanta_source_check'=>$sourceCheck?:null,
+            ]);
         }
-    }
-    staffingTimesheetRecordArtifactEvent($headerId, 'timesheet.approved', $userId, [
-        'approved_via' => $headerVia,
-        'entry_count' => count($snapshots),
-        'external_approver_email' => $options['external_approver_email'] ?? null,
-        'approval_token_id' => $options['approval_token_id'] ?? null,
-        'quanta_source_check' => $sourceCheck ?: null,
-    ], $tenantId);
-    timeReconcileTimesheetHeader($headerId,$userId);
+        staffingTimeUpdate('staffing_timesheets',$headerId,[
+            'approved_via'=>$headerVia,'external_approver_email'=>$options['external_approver_email']??null,
+            'approval_note'=>$options['approval_note']??null,'rejected_at'=>null,'rejected_by_user_id'=>null,'rejection_reason'=>null,
+        ]);
+        timeReconcileTimesheetHeader($headerId,$userId);
+        staffingTimesheetRecordArtifactEvent($headerId,'timesheet.approved',$userId,[
+            'approved_via'=>$headerVia,'entry_ids'=>array_keys($snapshots),
+            'external_approver_email'=>$options['external_approver_email']??null,
+            'approval_token_id'=>$options['approval_token_id']??null,'quanta_source_check'=>$sourceCheck?:null,
+        ],$tenantId);
+        timeNativeRequiredAudit('time.timesheet.approved',$headerId,[
+            'entry_ids'=>array_keys($snapshots),'approved_via'=>$headerVia,
+            'external_approver_email'=>$options['external_approver_email']??null,
+        ],$userId);
+    });
 }
 
 /** Approve the whole week — cascade to rows. Two-eye control. */

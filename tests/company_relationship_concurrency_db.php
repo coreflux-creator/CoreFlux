@@ -44,6 +44,11 @@ function genericTimeRaceWrite(array $input): array
     setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('time');
     $user=['id'=>$input['actor']];$authorize=static function(int $person):void {};
     $result=match($input['operation']??'patch') {
+        'approve'=>timeApproveEntry($input['entry_id'],$user),
+        'apply_week'=>(static function()use($input):array {
+            staffingTimesheetApplyApproval($input['actor'],$input['timesheet_id'],$input['plan'],['tenant_id'=>$input['workspace']]);
+            return ['id'=>$input['timesheet_id'],'timesheet'=>staffingTimesheetRow($input['workspace'],$input['timesheet_id'])];
+        })(),
         'submit'=>timeSubmitEntries([$input['entry_id']],$user,true),
         'submit_week'=>staffingTimesheetSubmit($input['actor'],$input['person_id'],'2026-10-05','2026-10-11'),
         'create'=>timeNativeCreate($user,$input['rows'],$authorize,(int)($input['document_id']??0),true),
@@ -758,6 +763,7 @@ try{
     require __DIR__.'/fixtures/native_time_concurrency_checks.php';
     require __DIR__.'/fixtures/generic_time_concurrency_checks.php';
     require __DIR__.'/fixtures/time_submission_concurrency_checks.php';
+    require __DIR__.'/fixtures/time_approval_alignment_concurrency_checks.php';
     require __DIR__.'/fixtures/time_correction_review_concurrency_checks.php';
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));

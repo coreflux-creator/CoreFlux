@@ -21,13 +21,13 @@ function timeNativeHours(mixed $value): float
     return $hours;
 }
 
-function timeNativeRequiredAudit(string $event,int $id,array $meta,int $actor): void
+function timeNativeRequiredAudit(string $event,int $id,array $meta,?int $actor): void
 {
     if (!StaffingNativeTimeEdit::active()) throw new LogicException('Time audit requires the protected write transaction.');
     require_once __DIR__.'/../../../core/audit.php';
     $receipt=bin2hex(random_bytes(16));$meta['time_change_id']=$receipt;
     platformAuditLogWrite(staffingTimeWorkspace(),$actor,$event,$id,$meta);
-    $q=getDB()->prepare("SELECT id FROM audit_log WHERE tenant_id=? AND actor_user_id=? AND event=? AND target_id=? AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,'$.time_change_id'))=? LIMIT 1 FOR UPDATE");
+    $q=getDB()->prepare("SELECT id FROM audit_log WHERE tenant_id=? AND actor_user_id<=>? AND event=? AND target_id=? AND JSON_UNQUOTE(JSON_EXTRACT(meta_json,'$.time_change_id'))=? LIMIT 1 FOR UPDATE");
     $q->execute([staffingTimeWorkspace(),$actor,$event,$id,$receipt]);
     if (!$q->fetchColumn()) throw new RuntimeException('The time change could not be recorded. Please try again.',503);
 }

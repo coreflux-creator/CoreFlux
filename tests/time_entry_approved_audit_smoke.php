@@ -59,11 +59,13 @@ foreach ([
 
 echo "\n4. Manual approve site (entries.php)\n";
 $entries = (string) file_get_contents($root . '/modules/time/api/entries.php');
+$review = (string) file_get_contents($root . '/modules/time/lib/native_review.php');
 $a('manual approve uses the shared approval helper',
    str_contains($entries, "timeApproveEntry(\$id, \$user, 'manual')"));
 $a('shared approval helper emits the approver context',
-   str_contains($lib, "timeEntryApprovedEmit(\$id, \$approvedEntry, \$approvedVia")
-   && str_contains($lib, "'approver_user_id' => \$user['id'] ?? null,"));
+   str_contains($lib, 'timeNativeWriteApproval($entry,$snapshot,$actor,$approvedVia')
+   && str_contains($review, "timeEntryApprovedEmit((int)\$entry['id'],\$approved,\$via,['approver_user_id'=>\$actor]")
+   && str_contains($lib, "timeNativeRequiredAudit('time.entry.approved'"));
 $a('manual approve no longer calls timeAudit(time.entry.approved) directly (helper owns it)',
    !preg_match("/timeAudit\(\s*'time\.entry\.approved'/", $entries));
 $a('manual approve site does NOT call accountingPostJe (audit-only)',

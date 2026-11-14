@@ -22,7 +22,14 @@ final class StaffingNativeTimeEdit
 
     public static function run(callable $work): mixed
     {
-        $pdo=getDB();$workspace=staffingTimeWorkspace();
+        return self::runForWorkspace(staffingTimeWorkspace(), $work);
+    }
+
+    /** Internal callers must establish authority for this original workspace first. */
+    public static function runForWorkspace(int $workspace, callable $work): mixed
+    {
+        $pdo=getDB();
+        if ($workspace<=0) throw new RuntimeException('The original time workspace is required.',403);
         if (!$pdo) throw new RuntimeException('Time storage is unavailable.',503);
         if (self::$connection!==null && (!self::active() || (self::$scope['workspace']??0)!==$workspace)) throw new RuntimeException('The time edit context changed. Reload this workspace.',409);
         $nested=$pdo->inTransaction();$previousConnection=self::$connection;$previousScope=self::$scope;
@@ -40,6 +47,13 @@ final class StaffingNativeTimeEdit
             self::$connection=$previousConnection;self::$scope=$previousScope;
             if (!$nested) {if ($pdo->inTransaction()) $pdo->rollBack();$pdo->exec('SET autocommit='.$auto);}
         }
+    }
+
+    public static function lockOwner(string $module): int
+    {
+        if (!self::active()) throw new LogicException('A protected time transaction is required.');
+        if (!isset(self::$scope[$module])) self::$scope[$module]=companyRelationshipScope(getDB(),self::$scope['workspace'],$module)['owner'];
+        return self::$scope[$module];
     }
 }
 

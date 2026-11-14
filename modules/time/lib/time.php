@@ -90,7 +90,7 @@ function timeOpenPeriodIdForDate(string $workDate): int
 
 function timePlacementGraphTenantId(?int $tenantId = null): ?int
 {
-    if (class_exists('StaffingNativeTimeEdit',false) && StaffingNativeTimeEdit::active() && ($tenantId===null || $tenantId===currentTenantId())) return StaffingNativeTimeEdit::owner('placements');
+    if (class_exists('StaffingNativeTimeEdit',false) && StaffingNativeTimeEdit::active() && ($tenantId===null || $tenantId===staffingTimeWorkspace())) return StaffingNativeTimeEdit::owner('placements');
     $tenantId = $tenantId ?? currentTenantId();
     if (!$tenantId) return null;
     try {
@@ -309,66 +309,29 @@ function timeSubmitEntries(array $entryIds, array $user, bool $canManageOthers =
  */
 function timeApproveEntry(int $id, array $user, string $approvedVia = 'manual'): array
 {
-    $reviewChannel = $approvedVia;
-    // Bulk review is a human/manual decision, not a pre-approved import.
-    if ($approvedVia === 'bulk_review') $approvedVia = 'manual';
-    if (!in_array($approvedVia, ['manual', 'tokenized_client_email', 'bulk_pre_approved'], true)) {
-        throw new \RuntimeException('Unsupported time approval method', 422);
-    }
-    $entry = timeEntryGet($id);
-    if (!$entry) throw new \RuntimeException("Entry {$id} not found", 404);
-    if ($entry['created_by_user_id'] && (int) $entry['created_by_user_id'] === (int) ($user['id'] ?? 0)) {
-        throw new \RuntimeException('Two-eye control: you cannot approve your own entry', 403);
-    }
-    if ($entry['status'] !== 'pending_review') {
-        throw new \RuntimeException("Only pending_review entries can be approved; entry {$id} is {$entry['status']}", 409);
-    }
-
-    $snap = timeResolveRateSnapshot((int) $entry['placement_id'], (string) $entry['work_date']);
-    if (!$snap) {
-        throw new \RuntimeException(
-            "No approved rate covers {$entry['work_date']} for entry {$id}. Approve the placement rate first.",
-            422
-        );
-    }
-
-    require_once __DIR__.'/../../../core/tx_helpers.php';
+    require_once __DIR__.'/native_review.php';
     require_once __DIR__.'/../../../core/quanta/time_current.php';
-    $pdo = getDB();
-    $ownsTxn = cf_tx_begin($pdo);
-    $savepoint = 'time_approve_' . bin2hex(random_bytes(6));
-    if (!$ownsTxn) $pdo->exec('SAVEPOINT ' . $savepoint);
-    try {
-        $sourceCheck = quantaTimeAssertCurrent($pdo, (int)currentTenantId(), [$id]);
-        $current = timeEntryGet($id);
-        if (!$current || $current !== $entry) {
-            throw new \RuntimeException('The time entry changed during approval. Refresh and review it again.', 409);
+    $reviewChannel=$approvedVia;
+    if ($approvedVia==='bulk_review') $approvedVia='manual';
+    if (!in_array($approvedVia,['manual','bulk_pre_approved'],true)) throw new RuntimeException('Unsupported time approval method',422);
+    return StaffingNativeTimeEdit::run(static function()use($id,$user,$approvedVia,$reviewChannel):array {
+        $entry=timeEntryGet($id);
+        if (!$entry) throw new RuntimeException("Entry {$id} not found",404);
+        $actor=(int)($user['id']??0);
+        $snapshot=timeNativeApprovalSnapshot($entry,$actor);
+        $sourceIds=[$id];
+        if (!empty($entry['timesheet_id'])) {
+            $siblings=staffingTimeQuery('SELECT id,status FROM time_entries WHERE tenant_id=:tenant_id AND timesheet_id=:id AND status!="superseded" ORDER BY id',['id'=>$entry['timesheet_id']]);
+            if (!array_filter($siblings,static fn($row)=>(int)$row['id']!==$id && $row['status']!=='approved')) $sourceIds=array_map('intval',array_column($siblings,'id'));
         }
-        staffingTimeUpdate('time_entries', $id, [
-            'status'              => 'approved',
-            'rate_snapshot_id'    => (int) $snap['id'],
-            'approved_by_user_id' => $user['id'] ?? null,
-            'approved_at'         => date('Y-m-d H:i:s'),
-            'approved_via'        => $approvedVia,
+        $sourceCheck=quantaTimeAssertCurrent(getDB(),staffingTimeWorkspace(),$sourceIds);
+        if (timeEntryGet($id)!==$entry) throw new RuntimeException('The time entry changed during approval. Refresh and review it again.',409);
+        $approved=timeNativeWriteApproval($entry,$snapshot,$actor,$approvedVia,[
+            'review_channel'=>$reviewChannel,'quanta_source_check'=>$sourceCheck?:null,
         ]);
-        $approvedEntry = timeEntryGet($id) ?? $entry;
-        timeReconcileTimesheetHeader((int) ($approvedEntry['timesheet_id'] ?? 0), $user['id'] ?? null);
-        if (!$ownsTxn) $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
-        cf_tx_commit($pdo, $ownsTxn);
-    } catch (\Throwable $e) {
-        if (!$ownsTxn && $pdo->inTransaction()) {
-            $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
-            $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
-        }
-        cf_tx_rollback($pdo, $ownsTxn);
-        throw $e;
-    }
-    timeEntryApprovedEmit($id, $approvedEntry, $approvedVia, [
-        'approver_user_id' => $user['id'] ?? null,
-        'review_channel' => $reviewChannel,
-        'quanta_source_check' => $sourceCheck ?: null,
-    ]);
-    return $approvedEntry;
+        timeReconcileTimesheetHeader((int)($entry['timesheet_id']??0),$actor);
+        return $approved;
+    });
 }
 
 function timeRejectEntry(int $id, array $user, string $reason): array
@@ -463,13 +426,13 @@ function timeResolveRateSnapshot(int $placementId, string $workDate, ?int $tenan
     $pdo = getDB();
     if (!$pdo || !$tenantId) return null;
     $stmt = $pdo->prepare(
-        'SELECT id, bill_rate, pay_rate, bill_rate_unit, pay_rate_unit, currency, ot_multiplier, dt_multiplier
+        'SELECT *
          FROM placement_rates
          WHERE tenant_id = :tenant_id AND placement_id = :pid
            AND approved_at IS NOT NULL
            AND effective_from <= :wd_from
            AND (effective_to IS NULL OR effective_to >= :wd_to)
-         ORDER BY effective_from DESC LIMIT 1'
+         ORDER BY effective_from DESC, id DESC LIMIT 1'.(class_exists('StaffingNativeTimeEdit',false) && StaffingNativeTimeEdit::active()?' FOR UPDATE':'')
     );
     $stmt->execute([
         'tenant_id' => $tenantId,
@@ -1050,5 +1013,7 @@ function timeEntryApprovedEmit(int $entryId, array $entry, string $approvedVia, 
         'rate_snapshot_id' => isset($entry['rate_snapshot_id']) ? (int) $entry['rate_snapshot_id'] : null,
         'approved_via'     => $approvedVia,
     ], $approverContext);
-    timeAudit('time.entry.approved', $meta, $entryId);
+    if (class_exists('StaffingNativeTimeEdit',false) && StaffingNativeTimeEdit::active()) {
+        timeNativeRequiredAudit('time.entry.approved',$entryId,$meta,$approverContext['approver_user_id']??null);
+    } else timeAudit('time.entry.approved', $meta, $entryId);
 }

@@ -60,9 +60,14 @@ try {
         'first_name' => 'CI Projection', 'last_name' => 'Worker',
         'email_primary' => 'ci-time-projection-worker@example.invalid', 'classification' => 'w2',
     ]);
+    $entityId=(int)$pdo->query('SELECT id FROM accounting_entities WHERE tenant_id='.(int)$tenantId.' AND active=1 ORDER BY id LIMIT 1')->fetchColumn();
+    if (!$entityId) throw new RuntimeException('The disposable fixture needs its provisioned accounting entity.');
+    $companyId=scopedInsert('companies',['name'=>'CI time approval client']);
+    $clientId=scopedInsert('staffing_clients',['name'=>'CI time approval client','company_id'=>$companyId]);
     $placementId = scopedInsert('placements', [
         'person_id' => $personId, 'status' => 'active', 'start_date' => '2026-11-01',
         'engagement_type' => 'w2', 'title' => 'CI synthetic approval projection',
+        'client_id'=>$clientId,'accounting_entity_id'=>$entityId,'worksite_state'=>'NJ','workers_comp_class'=>'synthetic-class',
     ]);
     $rateId = scopedInsert('placement_rates', [
         'placement_id' => $placementId, 'effective_from' => '2026-11-01',
@@ -190,7 +195,8 @@ try {
         $assertState($status, $status === 'locked' ? 'final' : 'approved', $users['alpha']['id']);
     }
     $before = $read();
-    $GLOBALS['__cf_request_tenant_id'] = 2147483647;
+    $pdo->exec('INSERT INTO tenants(name,tenant_type,is_active,is_simulation) VALUES("Synthetic other time owner","master",1,1)');
+    $GLOBALS['__cf_request_tenant_id'] = (int)$pdo->lastInsertId();
     timeReconcileTimesheetHeader($sheetId, $users['beta']['id']);
     $refused(static fn() => timeApproveEntry($entryIds[1], $users['beta']), 404);
     $assert($read() === $before, 'a foreign company cannot reconcile or approve this timesheet');

@@ -5,6 +5,7 @@ require_once __DIR__.'/../../../core/tenant_scope.php';
 
 function staffingTimeWorkspace(): int
 {
+    if (class_exists('StaffingNativeTimeEdit',false) && StaffingNativeTimeEdit::active()) return (int)StaffingNativeTimeEdit::owner('workspace');
     $workspace=(int)currentTenantId();
     if ($workspace<=0) throw new RuntimeException('Select the original time workspace.',403);
     return $workspace;
