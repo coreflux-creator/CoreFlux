@@ -90,6 +90,7 @@
         $expect(currentTenantId()===$scopeBefore&&$read('time_entries',$ids[0])===$frozen,'Explicit weekly approval restores the caller scope and retains the independently approved sibling');
         $expect($snapshot($financialTables)===$financialBefore,'Entry and weekly approval services create no financial events, journals, payments or payroll runs');
         require __DIR__.'/time_decision_review_http_checks.php';
+        require __DIR__.'/time_client_token_http_checks.php';
     } finally {
         $pdo->exec('DROP TRIGGER IF EXISTS cf_http_approval_receipt');
         if($member){$pdo->prepare('DELETE FROM membership_module_access WHERE membership_id=?')->execute([$member]);deactivateMembership($actor,$workspace);}

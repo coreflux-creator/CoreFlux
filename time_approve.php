@@ -15,52 +15,26 @@
  * (?action=respond). This file only renders.
  */
 
-require_once __DIR__ . '/core/db.php';
-require_once __DIR__ . '/core/config.php';
-require_once __DIR__ . '/modules/time/lib/approval_tokens.php';
-
-$raw    = (string) ($_GET['t'] ?? '');
-$prefer = (string) ($_GET['a'] ?? '');
-$valid  = preg_match('/^[a-f0-9]{64}$/', $raw) === 1;
-$row    = $valid ? timeTokenFindByRaw($raw) : null;
-
-// Auto-expire lazily on page load
-if ($row && $row['response'] === 'pending' && $row['expires_at'] < date('Y-m-d H:i:s')) {
-    $pdo = getDB();
-    if ($pdo) {
-        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-        $pdo->prepare('UPDATE time_approval_tokens SET response = "expired" WHERE id = :id')->execute(['id' => $row['id']]);
-        $row['response'] = 'expired';
+require_once __DIR__.'/core/db.php';
+require_once __DIR__.'/core/config.php';
+require_once __DIR__.'/modules/time/lib/client_token_review.php';
+header('Cache-Control: private, no-store');
+header('Referrer-Policy: no-referrer');
+$raw=(string)($_GET['t']??'');$prefer=($_GET['a']??'approve')==='reject'?'reject':'approve';
+$valid=preg_match('/^[a-f0-9]{64}$/D',$raw)===1;
+$row=null;$entries=[];$placement=null;$reviewError=null;
+if ($valid) {
+    try {
+        $review=timeClientTokenReview($raw,$prefer);
+        $row=['response'=>$review['status'],'responded_at'=>$review['responded_at']??null,'expires_at'=>$review['expires_at']];
+        $entries=$review['entries']??[];$placement=$review['placement']??null;
+    } catch(Throwable $e) {
+        $reviewError=$e instanceof RuntimeException && !($e instanceof PDOException)?$e->getMessage():'The time review is temporarily unavailable. Reload this page before responding.';
     }
 }
-
-$title = 'Timesheet approval — CoreFlux';
-$appUrl = defined('APP_URL') ? rtrim(APP_URL, '/') : 'https://www.corefluxapp.com';
-
-$entries = [];
-$placement = null;
-if ($row) {
-    $entryIds = json_decode((string) $row['entries_json'], true)['entry_ids'] ?? [];
-    $pdo = getDB();
-    if ($pdo) {
-        $pstmt = $pdo->prepare('SELECT p.title, p.end_client_name, p.person_id, pe.first_name, pe.last_name
-                                FROM placements p
-                                LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
-                                WHERE p.id = :id AND p.tenant_id = :tid');
-        $pstmt->execute(['id' => $row['placement_id'], 'tid' => $row['tenant_id']]);
-        $placement = $pstmt->fetch(PDO::FETCH_ASSOC) ?: null;
-
-        if (!empty($entryIds)) {
-            $in = implode(',', array_map('intval', $entryIds));
-            $estmt = $pdo->query("SELECT id, work_date, category, hours, description
-                                  FROM time_entries
-                                  WHERE tenant_id = {$row['tenant_id']}
-                                    AND id IN ({$in})
-                                  ORDER BY work_date, id");
-            $entries = $estmt ? $estmt->fetchAll(PDO::FETCH_ASSOC) : [];
-        }
-    }
-}
+$title='Timesheet approval — CoreFlux';
+$appUrl=defined('APP_URL')?rtrim(APP_URL,'/'):'https://www.corefluxapp.com';
+$alternate='/time_approve.php?t='.rawurlencode($raw).'&a='.($prefer==='approve'?'reject':'approve');
 
 function cf_esc($s): string { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); }
 ?>
@@ -105,7 +79,10 @@ function cf_esc($s): string { return htmlspecialchars((string) $s, ENT_QUOTES, '
 <body>
 <div class="wrap">
   <div class="card" data-testid="time-approve-page">
-  <?php if (!$row): ?>
+  <?php if ($reviewError!==null): ?>
+    <div class="card__header"><h1>Review needs attention</h1></div>
+    <div class="card__body"><p class="state state--bad"><?= cf_esc($reviewError) ?></p><p><a href="<?= cf_esc($alternate) ?>">Review <?= $prefer==='approve'?'rejection':'approval' ?></a></p></div>
+  <?php elseif (!$row): ?>
     <div class="card__header"><h1>Link not recognised</h1></div>
     <div class="card__body"><div class="state state--bad" data-testid="time-approve-invalid">This approval link is not valid. If you received this email from CoreFlux, please contact the sender.</div></div>
   <?php elseif ($row['response'] !== 'pending'): ?>
@@ -121,8 +98,8 @@ function cf_esc($s): string { return htmlspecialchars((string) $s, ENT_QUOTES, '
     $who = trim(($placement['first_name'] ?? '') . ' ' . ($placement['last_name'] ?? '')) ?: 'the consultant';
   ?>
     <div class="card__header">
-      <h1>Timesheet approval</h1>
-      <p>Please review hours for <strong data-testid="time-approve-who"><?= cf_esc($who) ?></strong> on <strong data-testid="time-approve-placement"><?= cf_esc($placement['title'] ?? ('Placement #' . $row['placement_id'])) ?></strong>.</p>
+      <h1><?= $prefer==='approve'?'Review time approval':'Review time rejection' ?></h1>
+      <p>Please review hours for <strong data-testid="time-approve-who"><?= cf_esc($who) ?></strong> on <strong data-testid="time-approve-placement"><?= cf_esc($placement['title'] ?? 'the assignment') ?></strong>.</p>
     </div>
     <div class="card__body">
       <div class="summary">
@@ -131,13 +108,14 @@ function cf_esc($s): string { return htmlspecialchars((string) $s, ENT_QUOTES, '
         <div><div class="label">Expires</div><div class="value" style="font-size:14px"><?= cf_esc($row['expires_at']) ?></div></div>
       </div>
 
+      <p><?= cf_esc($placement['person_number']) ?> · <?= cf_esc($placement['placement_number']) ?></p>
       <table data-testid="time-approve-table">
-        <thead><tr><th>Day</th><th>Category</th><th class="right">Hours</th></tr></thead>
+        <thead><tr><th>Day</th><th>Category / description</th><th class="right">Hours</th></tr></thead>
         <tbody>
           <?php foreach ($entries as $e): ?>
           <tr>
             <td><?= cf_esc($e['work_date']) ?></td>
-            <td><?= cf_esc(str_replace('_', ' ', $e['category'])) ?></td>
+            <td><?= cf_esc(str_replace('_', ' ', $e['category'])) ?><br><small><?= cf_esc($e['description']??'') ?></small></td>
             <td class="right"><?= number_format((float) $e['hours'], 2) ?></td>
           </tr>
           <?php endforeach; ?>
@@ -148,12 +126,15 @@ function cf_esc($s): string { return htmlspecialchars((string) $s, ENT_QUOTES, '
       <form id="respond" method="POST" action="/modules/time/api/approval_tokens.php?action=respond" data-testid="time-approve-form"
             onsubmit="return cfSubmit(event)">
         <input type="hidden" name="t" value="<?= cf_esc($raw) ?>" />
-        <textarea name="note" placeholder="Optional note (shown in the audit log)" data-testid="time-approve-note"></textarea>
+        <input type="hidden" name="review_revision" value="<?= cf_esc($review['revision']) ?>" />
+        <input type="hidden" name="decision" value="<?= cf_esc($prefer) ?>" />
+        <label for="decision-note"><?= $prefer==='reject'?'Reason for rejection (required)':'Note (optional)' ?></label>
+        <textarea id="decision-note" name="note" maxlength="500" <?= $prefer==='reject'?'required':'' ?> data-testid="time-approve-note"></textarea>
         <div class="actions">
-          <button class="btn btn--approve" type="submit" name="action" value="approve" data-testid="time-approve-btn-approve">Approve timesheet</button>
-          <button class="btn btn--reject"  type="submit" name="action" value="reject"  data-testid="time-approve-btn-reject">Reject</button>
+          <button class="btn <?= $prefer==='approve'?'btn--approve':'btn--reject' ?>" type="submit" data-testid="time-approve-btn-confirm">Confirm <?= $prefer==='approve'?'approval':'rejection' ?></button>
         </div>
       </form>
+      <p><a href="<?= cf_esc($alternate) ?>">Review <?= $prefer==='approve'?'rejection':'approval' ?> instead</a></p>
     </div>
   <?php endif; ?>
     <div class="footer">CoreFlux · This is a one-time approval link. <a href="<?= cf_esc($appUrl) ?>"><?= cf_esc(parse_url($appUrl, PHP_URL_HOST) ?: 'corefluxapp.com') ?></a></div>
@@ -162,33 +143,29 @@ function cf_esc($s): string { return htmlspecialchars((string) $s, ENT_QUOTES, '
 <script>
 async function cfSubmit(ev) {
   ev.preventDefault();
-  const form = ev.target;
-  const submitter = ev.submitter || form.querySelector('button[type=submit]');
-  const action = submitter?.value || 'approve';
-  const body = {
-    t: form.elements['t'].value,
-    action,
-    note: form.elements['note'].value,
+  const form=ev.target;
+  if(form.dataset.pending==='1') return false;
+  const action=form.elements.decision.value;
+  const note=form.elements.note.value.trim();
+  if(action==='reject' && !note){form.elements.note.focus();return false;}
+  const body={t:form.elements.t.value,action,note,review_revision:form.elements.review_revision.value};
+  form.dataset.pending='1';
+  for(const button of form.querySelectorAll('button')) button.disabled=true;
+  const show=(message,success)=>{
+    const card=document.querySelector('.card__body');
+    const result=document.createElement('div');
+    result.className='state '+(success?'state--ok':'state--bad');
+    result.dataset.testid=success?'time-approve-success':'time-approve-error';
+    result.textContent=message;card.replaceChildren(result);
+    if(!success){const reload=document.createElement('a');reload.href=location.href;reload.textContent='Reload the time review';card.append(reload);}
   };
-  submitter.disabled = true;
-  submitter.textContent = action === 'approve' ? 'Approving…' : 'Rejecting…';
   try {
-    const res = await fetch(form.action, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({}));
-    const card = document.querySelector('.card__body');
-    if (res.ok) {
-      card.innerHTML = '<div class="state state--ok" data-testid="time-approve-success">Thank you — your response has been recorded as <strong>' + (data.response || action) + '</strong>. You can close this page.</div>';
-    } else {
-      card.innerHTML = '<div class="state state--bad" data-testid="time-approve-error">Could not record response: ' + (data.error || ('HTTP ' + res.status)) + '</div>';
-    }
-  } catch (e) {
-    alert('Network error: ' + e.message);
-    submitter.disabled = false;
-  }
+    const res=await fetch(form.action,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(body)});
+    const data=await res.json().catch(()=>({}));
+    const expected=action==='approve'?'approved':'rejected';
+    if(res.ok && data.ok===true && data.response===expected) show('Thank you — your response has been recorded as '+expected+'. You can close this page.',true);
+    else show(typeof data.error==='string'?data.error:'The response could not be confirmed. Reload and review the time again.',false);
+  } catch {show('The response could not be confirmed. Reload the time review to check its status before trying again.',false);}
   return false;
 }
 </script>

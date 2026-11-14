@@ -48,6 +48,16 @@ function timeNativeApprovalSnapshot(array $entry, ?int $actor): array
         ]))];
 }
 
+function timeNativeExternalReviewer(array $entry, string $email): void
+{
+    if (!StaffingNativeTimeEdit::active()) throw new LogicException('An external review requires a protected transaction.');
+    if (!filter_var($email,FILTER_VALIDATE_EMAIL)) throw new RuntimeException('An identified client approver is required.',422);
+    $q=getDB()->prepare('SELECT email_primary FROM people WHERE tenant_id=? AND id=? FOR UPDATE');
+    $q->execute([StaffingNativeTimeEdit::owner('people'),$entry['person_id']]);$workerEmail=$q->fetchColumn();
+    $q=getDB()->prepare('SELECT email FROM users WHERE id=? FOR UPDATE');$q->execute([(int)($entry['created_by_user_id']??0)]);$creatorEmail=$q->fetchColumn();
+    foreach([$workerEmail,$creatorEmail]as$ownEmail) if ($ownEmail && strcasecmp(trim($ownEmail),trim($email))===0) throw new RuntimeException('This time requires a different approver.',403);
+}
+
 function timeNativeWriteApproval(array $entry, array $snapshot, ?int $actor, string $via, array $context=[]): array
 {
     if (!StaffingNativeTimeEdit::active()) throw new LogicException('Approval requires a protected time transaction.');
@@ -55,10 +65,7 @@ function timeNativeWriteApproval(array $entry, array $snapshot, ?int $actor, str
     $email=$context['client_approver_email']??null;
     if ($actor===null) {
         if ($via!=='tokenized_client_email' || !filter_var($email,FILTER_VALIDATE_EMAIL)) throw new RuntimeException('An identified approver is required.',422);
-        $q=getDB()->prepare('SELECT email_primary FROM people WHERE tenant_id=? AND id=? FOR UPDATE');
-        $q->execute([StaffingNativeTimeEdit::owner('people'),$entry['person_id']]);$workerEmail=$q->fetchColumn();
-        $q=getDB()->prepare('SELECT email FROM users WHERE id=? FOR UPDATE');$q->execute([(int)($entry['created_by_user_id']??0)]);$creatorEmail=$q->fetchColumn();
-        foreach([$workerEmail,$creatorEmail]as$ownEmail) if ($ownEmail && strcasecmp(trim($ownEmail),trim($email))===0) throw new RuntimeException('This time requires a different approver.',403);
+        timeNativeExternalReviewer($entry,$email);
     }
     $json=staffingDimensionSnapshotCanonicalJson($snapshot['dimensions']);
     $q=getDB()->prepare('UPDATE time_entries SET status="approved",rate_snapshot_id=?,dimension_snapshot_json=?,dimension_snapshot_hash=?,approved_at=NOW(),approved_by_user_id=?,approved_via=?,client_approver_email=?,rejected_reason=NULL WHERE tenant_id=? AND id=? AND status="pending_review"');

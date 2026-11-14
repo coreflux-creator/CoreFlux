@@ -56,14 +56,16 @@ $a('staffing week and posting event use placement graph joins',
     && str_contains($staffingLib, 'pl.tenant_id = :placements_tid'));
 
 $tokens = $c('modules/time/api/approval_tokens.php');
+$tokenReview = $c('modules/time/lib/client_token_review.php');
 $a('tokenized time approval locks rate snapshots with token tenant',
-    str_contains($tokens, 'timeResolveRateSnapshot(')
-    && str_contains($tokens, '(int) $row[\'tenant_id\']')
-    && str_contains($tokens, 'rate_snapshot_id = :rate_snapshot_id'));
+    str_contains($tokens, 'timeClientTokenRespond(')
+    && str_contains($tokenReview, "StaffingNativeTimeEdit::runForWorkspace((int)\$located['tenant_id']")
+    && str_contains($tokenReview, 'timeNativeApprovalSnapshot($entry,null)')
+    && str_contains($tokenReview, 'timeNativeWriteApproval('));
 $a('tokenized placement preview uses placement/people graph tenants',
-    str_contains($tokens, 'effectiveTenantIdForModule(\'placements\', (int) $row[\'tenant_id\'])')
-    && str_contains($tokens, 'effectiveTenantIdForModule(\'people\', (int) $row[\'tenant_id\'])')
-    && str_contains($tokens, 'pe.tenant_id = :people_tid'));
+    str_contains($tokens, 'timeClientTokenReview(')
+    && str_contains($tokenReview, "StaffingNativeTimeEdit::owner('placements')")
+    && str_contains($tokenReview, "StaffingNativeTimeEdit::owner('people')"));
 
 $billing = $c('modules/billing/lib/billing.php');
 $ap = $c('modules/ap/lib/ap.php');

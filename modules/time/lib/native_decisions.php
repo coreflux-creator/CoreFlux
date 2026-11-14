@@ -91,28 +91,29 @@ function timeNativeDecisionReview(int $actor,string $kind,array $ids,string $dec
 }
 
 /** Reject exactly the selected pending rows; preserve source facts and approved siblings. */
-function timeNativeRejectRows(array $entries,int $actor,string $reason): array
+function timeNativeRejectRows(array $entries,?int $actor,string $reason,array $context=[]): array
 {
     if (!StaffingNativeTimeEdit::active()) throw new LogicException('A protected rejection transaction is required.');
-    if ($actor<=0 || !$entries) throw new RuntimeException('An identified reviewer and submitted entries are required.',422);
+    if (($actor!==null && $actor<=0) || !$entries) throw new RuntimeException('An identified reviewer and submitted entries are required.',422);
     $reason=timeNativeRejectionReason($reason);
     foreach ($entries as $entry) {
         if ($entry['status']!=='pending_review') throw new RuntimeException('Only pending_review entries can be rejected.',409);
         timeNativeValidateSubmission($entry);
+        if ($actor===null) timeNativeExternalReviewer($entry,(string)($context['client_approver_email']??''));
     }
     $headers=[];$result=[];
     $q=getDB()->prepare('UPDATE time_entries SET status="rejected",rejected_reason=? WHERE tenant_id=? AND id=? AND status="pending_review"');
     foreach ($entries as $entry) {
         $q->execute([$reason,staffingTimeWorkspace(),$entry['id']]);
         if ($q->rowCount()!==1) throw new RuntimeException('Time changed during rejection. Reload the review.',409);
-        timeNativeRequiredAudit('time.entry.rejected',(int)$entry['id'],['entry_id'=>$entry['id'],'reason'=>$reason,'rejected_by_user_id'=>$actor,'prior_status'=>'pending_review','status'=>'rejected'],$actor);
+        timeNativeRequiredAudit('time.entry.rejected',(int)$entry['id'],['entry_id'=>$entry['id'],'reason'=>$reason,'rejected_by_user_id'=>$actor,'prior_status'=>'pending_review','status'=>'rejected']+$context,$actor);
         if (!empty($entry['timesheet_id'])) $headers[(int)$entry['timesheet_id']][]=(int)$entry['id'];
         $result[]=timeEntryGet((int)$entry['id']);
     }
     foreach ($headers as $headerId=>$entryIds) {
         timeReconcileTimesheetHeader($headerId,$actor);
         staffingTimeUpdate('staffing_timesheets',$headerId,['rejected_at'=>date('Y-m-d H:i:s'),'rejected_by_user_id'=>$actor,'rejection_reason'=>$reason]);
-        $meta=['reason'=>$reason,'entry_ids'=>$entryIds];
+        $meta=['reason'=>$reason,'entry_ids'=>$entryIds]+$context;
         staffingTimesheetRecordArtifactEvent($headerId,'timesheet.rejected',$actor,$meta,staffingTimeWorkspace());
         timeNativeRequiredAudit('time.timesheet.rejected',$headerId,$meta,$actor);
     }

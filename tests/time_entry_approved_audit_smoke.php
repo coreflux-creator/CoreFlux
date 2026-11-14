@@ -74,22 +74,13 @@ $a('manual approve site does NOT call accountingPostJe (audit-only)',
 
 echo "\n5. Tokenized email approve site (approval_tokens.php)\n";
 $tokens = (string) file_get_contents($root . '/modules/time/api/approval_tokens.php');
-$a('emits per-entry audit only on approve (skips reject)',
-   str_contains($tokens, "if (\$choice === 'approve' && !empty(\$entryIds)) {"));
-$a('fetches POST-commit approved rows by id list',
-   str_contains($tokens, "FROM time_entries\n                  WHERE tenant_id = :t AND id IN ({\$in}) AND status = 'approved'"));
-$a('loops through approved rows and emits per-entry',
-   str_contains($tokens, "timeEntryApprovedEmit(\n                    (int) \$approved['id'],"));
-$a('passes tokenized_client_email as approved_via',
-   str_contains($tokens, "'tokenized_client_email',"));
-$a('includes token_id + email + ip_address in context',
-   str_contains($tokens, "'token_id'              => (int) \$row['id'],")
-   && str_contains($tokens, "'client_approver_email' => \$row['client_approver_email'],")
-   && str_contains($tokens, "'ip_address'            => \$ip,"));
-$a('log-and-swallows per-entry emit failures (does not break the token response)',
-   str_contains($tokens, '[time.token.respond] per-entry audit emit failed:'));
-$a('tokenized approve site does NOT call accountingPostJe (audit-only)',
-   !str_contains($tokens, 'accountingPostJe'));
+$client = (string) file_get_contents($root . '/modules/time/lib/client_token_review.php');
+$a('public response delegates to protected client decision', str_contains($tokens,'timeClientTokenRespond('));
+$a('client approval uses the shared mandatory per-entry receipt', str_contains($client,'timeNativeWriteApproval('));
+$a('client approval retains the external channel', str_contains($client,"'tokenized_client_email'"));
+$a('client decision retains token, email and IP context', str_contains($client,"'token_id'=>") && str_contains($client,"'client_approver_email'=>") && str_contains($client,"'ip_address'=>"));
+$a('client final receipt is required before transaction completion', str_contains($client,"timeNativeRequiredAudit('time.tokenized_email.responded'"));
+$a('client token decisions do not directly post journals', !str_contains($client,'accountingPostJe('));
 
 echo "\n6. Bulk CSV pre-approved site (csv_import.php)\n";
 $csv = (string) file_get_contents($root . '/modules/time/api/csv_import.php');

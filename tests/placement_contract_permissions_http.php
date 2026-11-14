@@ -36,8 +36,9 @@ $snapshot = static function(array $tables) use ($pdo): array {
     $out=[];
     foreach ($tables as $table) {
         $rows=$pdo->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC);
-        $encoded=array_map(static fn($row)=>json_encode($row,JSON_THROW_ON_ERROR),$rows); sort($encoded);
-        $out[$table]=hash('sha256',json_encode($encoded,JSON_THROW_ON_ERROR));
+        // Serialize preserves binary credential digests without substituting invalid UTF-8.
+        $encoded=array_map(static fn($row)=>serialize($row),$rows); sort($encoded);
+        $out[$table]=hash('sha256',serialize($encoded));
     }
     return $out;
 };
@@ -115,7 +116,7 @@ try {
         $raw=curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE); $location=(string)curl_getinfo($ch,CURLINFO_REDIRECT_URL); curl_close($ch);
         if ($raw===false && $path!=='/fixture-ready') throw new RuntimeException('Loopback request failed');
         $data=is_string($raw)?json_decode($raw,true):null;
-        if ($path!=='/fixture-ready') $report['requests'][]=['method'=>$method,'path'=>$path,'status'=>$status,'pinned_tenant'=>$pin,
+        if ($path!=='/fixture-ready') $report['requests'][]=['method'=>$method,'path'=>preg_replace('/([?&]t=)[^&]+/','$1[redacted]',$path),'status'=>$status,'pinned_tenant'=>$pin,
             'error'=>is_array($data)?($data['error']??null):null];
         return [$status,$data,$location];
     };

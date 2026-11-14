@@ -10,6 +10,11 @@ if (PHP_SAPI !== 'cli-server' || getenv('GITHUB_ACTIONS') !== 'true' || getenv('
 }
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 if ($path === '/fixture-ready') { header('Content-Type: application/json'); echo '{"ready":true}'; exit; }
+if ($path === '/modules/time/api/approval_tokens.php' || $path === '/time_approve.php') {
+    if (!in_array($_SERVER['REQUEST_METHOD'],['GET','POST'],true)) {http_response_code(404);exit;}
+    putenv('MAIL_DRIVER=log');
+    $script=dirname(__DIR__,2).$path;$_SERVER['SCRIPT_FILENAME']=$script;require $script;exit;
+}
 if ($path === '/modules/time/api/entries.php') {
     if(!in_array($_SERVER['REQUEST_METHOD'],['GET','POST','PATCH'],true) || !in_array($_GET['action']??'',['','bulk_create','correct','correction_review','entry_history','submit','bulk_submit','approve','reject','bulk_approve','bulk_reject','decision_review','decision_commit'],true)) {http_response_code(404);exit;}
     $script=dirname(__DIR__,2).$path;$_SERVER['SCRIPT_FILENAME']=$script;require $script;exit;
