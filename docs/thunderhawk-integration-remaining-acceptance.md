@@ -2,6 +2,14 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 14 populated pilot upgrade — prepared, not installed
+
+Upgrade tools `8f943974` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43572151001), including **29 populated upgrade database checks**, 32 payroll-review checks, 22 source-earnings checks, 65 identity checks, 944 independent-connection checks, 953 native-session checks and 917 native HTTP checks. Fixture cleanup passed. [Preparation and limits](thunderhawk-time-payroll-upgrade.md). [Pinned evidence](../deploy/thunderhawk-time-payroll-upgrade-preparation-20261114.json).
+
+Read-only inspection verified all 367 previously installed runtime pins, 378 tables, 35,304 rows and 345 migration records, with no unexpected server-file preimages or migration errors. Exactly seven new migrations are pending. The combined package contains 140 server files and nine browser/deployment files from accepted application `846e8620`, with 309 retained dependency pins. The first migration rehearsal exposed the CREATE-under-LOCK restriction; the corrected path prepares four empty evidence tables, then locks and rechecks all original values before existing-table DDL. Competing writes remain blocked, decimal widening preserves historical values, and partial failure retains explicit incomplete history rather than silently retrying.
+
+No hosted installation, maintenance hold, backup, configuration or provider change occurred. Guarded installation, hosted signed-in approval, full integration round-trip acceptance, and the outstanding field/financial-owner/correction/portal/document/callback/reconciliation work remain required. Production and Arabella are unchanged; the full goal is active and incomplete.
+
 ## November 14 exact payroll calculation review — source accepted, not installed
 
 Exact candidate `846e8620` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43570265181), including **32 actual payroll-review database checks**, the prior **22 native earnings** and **36 arithmetic checks**, **65 payroll source-identity checks**, **944 independent-connection checks**, **953 native-session checks** and **917 native HTTP checks**. Cleanup passed. All **530 local interface tests**, including six rendered payroll checks, and the frontend build passed. [Pinned evidence](../deploy/thunderhawk-native-payroll-calculation-review-preparation-20261114.json). [Behavior and limits](thunderhawk-native-payroll-calculation-review.md).
