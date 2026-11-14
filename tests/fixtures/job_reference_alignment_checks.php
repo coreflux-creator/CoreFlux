@@ -41,7 +41,10 @@
             $check($fails(fn()=>staffingJobLinkPlacementsByJobDivaId($child,'wrong-source',$job,$actor),409),$mode.': job ID cannot substitute for a mismatched provider identity');
             // Every changed placement needs a durable audit, in the same transaction.
             $pdo->prepare('UPDATE placements SET staffing_job_id=NULL WHERE tenant_id=? AND id=?')->execute([$owner,$cases['follow']]);$beforeAudit=$read('placements',$cases['follow']);
-            $pdo->exec('CREATE TEMPORARY TABLE audit_log (tenant_id INT)');$shadow=true;
+            $auditDdl=$pdo->query('SHOW CREATE TABLE audit_log')->fetch(PDO::FETCH_NUM)[1];
+            $auditDdl=preg_replace('/^CREATE TABLE /','CREATE TEMPORARY TABLE ',$auditDdl,1);
+            $auditDdl=str_replace('`audit_log` (','`audit_log` (`required_fixture_value` INT NOT NULL,',$auditDdl);
+            $pdo->exec($auditDdl);$shadow=true;
             $check($fails(fn()=>staffingJobLinkPlacementsByJobDivaId($child,$external,$job,$actor))&&$read('placements',$cases['follow'])===$beforeAudit,$mode.': failed audit rolls back the link instead of reporting success');
             $pdo->exec('DROP TEMPORARY TABLE audit_log');$shadow=false;
             // Do not choose an arbitrary client when its company has competing active profiles.
