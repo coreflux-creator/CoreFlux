@@ -43,7 +43,7 @@ $qbo = $read($root . '/core/qbo/sync_in.php');
 $assert('generic JobDiva companies remain generic organizations',
     str_contains($sync, 'jobdivaUpsertCompanyMapped($tid, $extId, $name, $patch, $jd, $userId, [])'));
 $assert('JobDiva jobs cannot create staffing clients',
-    str_contains($jobs, 'staffingClientFindForCompany($tenantId, $companyId)')
+    str_contains($jobs, '$clientScope[\'owner\'],$companyId')
     && !str_contains($jobs, 'staffingClientEnsureForCompany('));
 $assert('reconciliation preview does not fall back to requisition/customer labels',
     !str_contains($proposal, 'jobdivaEndClientNameFromPayload($payload)')

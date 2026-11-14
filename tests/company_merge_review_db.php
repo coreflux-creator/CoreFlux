@@ -100,10 +100,15 @@ try{
     jobdivaCompanyUpsertStable($tenant,'merge-B','New source name',['phone'=>'Source attempt'],['id'=>'merge-B','name'=>'New source name'],$actor,['msp']);
     jobdivaContactUpsertStable($tenant,$b,'merge-contact-B',['id'=>'merge-contact-B'],'Contact B',['is_primary'=>0],$actor);
     $check($row('companies',$a)['phone']==='Second'&&$row('companies',$a)['name']==='Merge Beta'&&(int)$row('company_contacts',$contactB)['is_primary']===1,'Post-merge source refresh cannot replace company choices or the selected primary contact');
+    $check($fails(fn()=>staffingJobEnsureFromJobDivaPayload($tenant,'merge-ambiguous-job',['title'=>'Ambiguous post merge job','companyId'=>'merge-B'],$actor),'Multiple active clients')
+        &&staffingJobFindBySource($tenant,'jobdiva','merge-ambiguous-job')===null,'Company merge retains distinct client profiles; a job cannot choose an arbitrary active client');
+    $pdo->exec('SAVEPOINT unambiguous_job_client_fixture');
+    $pdo->prepare('UPDATE staffing_clients SET status="inactive" WHERE tenant_id=? AND company_id=? AND id<>?')->execute([$tenant,$a,$client]);
     $jobAfter=staffingJobEnsureFromJobDivaPayload($tenant,'merge-post-job',['title'=>'Post merge job','companyId'=>'merge-B'],$actor);
     $check((int)$jobAfter['company_id']===$a&&$pdo->inTransaction(),'Job write follows the merged source while retaining the enclosing transaction');
     $check($fails(fn()=>staffingJobEnsureFromJobDivaPayload($tenant,'merge-bad-job',['title'=>str_repeat('Long title ',100),'companyId'=>'merge-B'],$actor))
         &&staffingJobFindBySource($tenant,'jobdiva','merge-bad-job')===null&&$pdo->inTransaction(),'Failed job write rolls back its savepoint without releasing the enclosing transaction');
+    $pdo->exec('ROLLBACK TO SAVEPOINT unambiguous_job_client_fixture');$pdo->exec('RELEASE SAVEPOINT unambiguous_job_client_fixture');
     companyNativeFields($pdo,$tenant,$tenant,'companies',$a,['phone'=>'Edit after merge'],$actor);$after=$all('companies');
     $check(companyMergeApply($tenant,$user,$preview['review_token'],$request)['replayed']&&$all('companies')===$after,'Same reviewed retry returns its receipt and preserves later edits');
     $bad=$request;$bad['fields']['phone']='survivor';$check($fails(fn()=>companyMergeApply($tenant,$user,$preview['review_token'],$bad),'different choices'),'The review cannot be reused for changed choices');
