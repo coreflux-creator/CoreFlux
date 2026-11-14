@@ -33,6 +33,9 @@ $expect($first['status']==='pending_review'&&$first['approved_by_user_id']===nul
 $expect(!str_contains($source['source_ct'],'external-source')&&decryptField(base64_decode($source['source_ct'],true))===$csv&&hash('sha256',$csv)===$source['source_hash'],'CSV source bytes are retained encrypted with an exact source hash');
 [$status,,,$download]=$nativeRequest('GET',$csvPath.'?action=source&id='.$import['import_id'],null,true,$workspace);
 $expect($status===200&&$download===$csv,'Original CSV can be retrieved through its authenticated workspace');
+$pdo->prepare('UPDATE time_csv_imports SET source_hash=? WHERE id=?')->execute([str_repeat('0',64),$import['import_id']]);
+try {$expect($nativeRequest('GET',$csvPath.'?action=source&id='.$import['import_id'],null,true,$workspace)[0]===503,'CSV download refuses source bytes that do not match their retained fingerprint');}
+finally {$pdo->prepare('UPDATE time_csv_imports SET source_hash=? WHERE id=?')->execute([$source['source_hash'],$import['import_id']]);}
 $expect(in_array($nativeRequest('GET',$csvPath.'?action=source&id='.$import['import_id'],null,true,$tenant)[0],[403,404],true),'CSV source cannot be downloaded from the parent workspace');
 $before=$snapshot($csvTables);[$status,$replay]=$commitCsv($csv,$preview['review_revision']);
 $expect($status===200&&$replay['replayed']===true&&$replay['ids']===$import['ids']&&$snapshot($csvTables)===$before,'Lost-response CSV replay returns its exact saved result without duplicate writes');

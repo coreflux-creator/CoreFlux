@@ -17,7 +17,7 @@ foreach(['COMMIT','ROLLBACK']as$transactionDecision)foreach(['hours','worker_nam
         if($change==='hours')$pdo->prepare('UPDATE time_entries SET hours=6 WHERE id=?')->execute([$f['entry']]);
         elseif($change==='worker_name')$pdo->prepare('UPDATE people SET first_name="Changed" WHERE id=?')->execute([$f['person']]);
         elseif($change==='period')$pdo->prepare('UPDATE time_periods SET status="locked" WHERE id=?')->execute([$f['period']]);
-        elseif($change==='source_identity')$pdo->prepare('UPDATE time_entries SET source_system="other",external_id="changed-source" WHERE id=?')->execute([$f['entry']]);
+        elseif($change==='source_identity')$pdo->prepare('UPDATE time_entries SET source_system="other",external_id=? WHERE id=?')->execute(['csv-changed-source-'.$f['entry'],$f['entry']]);
         else $pdo->prepare('UPDATE placements SET title="Changed assignment title" WHERE id=?')->execute([$f['placement']]);
         $worker=$spawn(['mode'=>'native','entity'=>'generic_time','operation'=>'csv_import','workspace'=>$tenant,'actor'=>$reviewer,'csv'=>$csv,'options'=>$csvRaceOptions,'revision'=>$preview['review_revision']]);
         $check($waiting($worker),'CSV commit waits for '.$change.' '.$transactionDecision);
@@ -26,6 +26,8 @@ foreach(['COMMIT','ROLLBACK']as$transactionDecision)foreach(['hours','worker_nam
         else {
             $q=$pdo->prepare('SELECT hours,status,created_by_user_id FROM time_entries WHERE id=?');$q->execute([$f['entry']]);$row=$q->fetch(PDO::FETCH_ASSOC);
             $check($result['ok']&&(int)($result['result']['imported_count']??0)===1&&(float)$row['hours']===7.0&&$row['status']==='pending_review'&&(int)$row['created_by_user_id']===$actor,'Rolled-back '.$change.' allows reviewed CSV while retaining the original creator: '.json_encode($result));
+            try {StaffingNativeTimeEdit::runForWorkspace($tenant,static fn()=>timeNativeApprovalSnapshot(timeEntryGet($f['entry']),$reviewer));$check(false,'CSV updater cannot approve despite being different from the original creator');}
+            catch(RuntimeException $e){$check((int)$e->getCode()===403,'CSV updater cannot approve despite being different from the original creator');}
         }
     } finally {if($pdo->inTransaction())$pdo->rollBack();if($change==='period')$pdo->prepare('UPDATE time_periods SET status="open" WHERE id=?')->execute([$f['period']]);}
 }

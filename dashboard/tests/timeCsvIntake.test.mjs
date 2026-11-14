@@ -47,3 +47,22 @@ test('a late preview cannot restore a review discarded by a mapping change',asyn
 test('a workspace change while preview is running discards its response',async()=>{reset();const tree=await open();try{
  let finish;post=()=>new Promise(resolve=>{finish=resolve;});let pending;await act(async()=>{pending=find(tree,'dry-run')[0].props.onClick();});pin='999';await act(async()=>{finish(value());await pending;});assert.equal(find(tree,'commit').length,0);assert.match(text(tree.root),/workspace changed/);
 }finally{act(()=>tree.unmount());}});
+
+let reservations=0;
+const bulkBundle=await build({entryPoints:[fileURLToPath(new URL('../src/pages/CsvBulkImport.jsx',import.meta.url))],bundle:true,platform:'node',format:'cjs',write:false,external:['react'],plugins:[{name:'bulk-fixtures',setup(b){
+ b.onResolve({filter:/lib\/api$/},()=>({path:'fixture-api',external:true}));
+ b.onResolve({filter:/lib\/csvImportAudit$/},()=>({path:'fixture-audit',external:true}));
+ b.onResolve({filter:/CsvImportRecoveryNotice$/},()=>({path:'fixture-notice',external:true}));
+ b.onResolve({filter:/^react-router-dom$/},()=>({path:'fixture-router',external:true}));
+ b.onResolve({filter:/^lucide-react$/},()=>({path:'fixture-icons',external:true}));
+}}]});
+const bulkModule={exports:{}};new Function('require','module','exports',bulkBundle.outputFiles[0].text)(id=>id==='fixture-api'?api:id==='fixture-audit'?{reserveCsvImportAudit:async()=>++reservations,finalizeCsvImportAudit:async()=>({id:reservations,sourceAttached:true})}:id==='fixture-notice'?()=>null:id==='fixture-icons'?{Download:()=>null}:id==='fixture-router'?{Link:props=>React.createElement('a',props,props.children)}:require(id),bulkModule,bulkModule.exports);
+const bulkFind=(tree,id)=>tree.root.findAllByProps({'data-testid':`csv-bulk-${id}`});
+async function openBulk(){let tree;reservations=0;await act(async()=>{tree=create(React.createElement(bulkModule.exports.default));});await act(async()=>bulkFind(tree,'file-input')[0].props.onChange({target:{files:[{name:'time.csv',text:'Placement ID,Work date,Hours\nPL-1,2026-10-05,8\n'}]}}));await act(async()=>bulkFind(tree,'validate')[0].props.onClick());return tree;}
+test('bulk time intake carries the displayed revision and rechecks changed skip options',async()=>{reset();const tree=await openBulk();try{
+ assert.equal(bulkFind(tree,'commit').length,1);await act(async()=>bulkFind(tree,'skip-invalid')[0].props.onChange({target:{checked:true}}));assert.equal(bulkFind(tree,'commit').length,0);
+ await act(async()=>bulkFind(tree,'validate')[0].props.onClick());assert.match(calls.at(-1)[0],/skip_invalid=1/);await act(async()=>bulkFind(tree,'commit')[0].props.onClick());const commit=calls.find(([path])=>path.includes('action=commit'));assert.equal(commit[1].review_revision,'a'.repeat(64));assert.match(commit[0],/skip_invalid=1/);assert.equal(reservations,1);
+}finally{act(()=>tree.unmount());}});
+test('bulk time intake refuses a switched workspace before reserving an import',async()=>{reset();const tree=await openBulk();try{
+ pin='999';await act(async()=>bulkFind(tree,'commit')[0].props.onClick());assert.equal(reservations,0);assert.equal(calls.filter(([path])=>path.includes('action=commit')).length,0);assert.match(text(tree.root),/current workspace/);
+}finally{act(()=>tree.unmount());}});
