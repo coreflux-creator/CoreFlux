@@ -217,8 +217,8 @@ try {
         'a legacy aggregate alongside an assignment event cannot be ignored');
     $pdo->exec('DELETE FROM accounting_events WHERE id=2');
     setRequestTenantId(11);
-    $check(payrollAccountingStaffingAccrualGroups(11,7,[20=>['person_id'=>1]])===[],
-        'a shared accounting directory does not borrow another time workspace assignment accrual');
+    $check($fails(fn()=>payrollAccountingStaffingAccrualGroups(11,7,[20=>['person_id'=>1]]),'accounting request or posted source is missing'),
+        'a shared accounting directory requires the original time workspace accrual instead of borrowing another company source');
     setRequestTenantId(10);
     // Older installations used text references: preserve those reads without rewriting them.
     $before=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll();
