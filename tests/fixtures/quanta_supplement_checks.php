@@ -90,9 +90,11 @@ $check($handoff['status']==='pending'&&count($events)===1&&(float)$events[0]['pa
     &&(float)$events[0]['payload']['wage_cost']===87.5&&$events[0]['payload']['timesheet_id']===$supplement,'separate accounting intent includes only newly approved hours at their frozen rate');
 $check((int)$pdo->query('SELECT COUNT(*) FROM accounting_events')->fetchColumn()===0&&$preserved()===$original,'supplement approval posts no accounting event and never reprices or reopens the primary');
 $sources['late-1']['regular_hours']=1;$sources['late-1']['hours']=1;$sources['late-1']['updated_at']='2026-10-06T12:00:00Z';
+$pdo->exec('INSERT INTO tenant_staffing_settings(tenant_id,week_starts_on) VALUES(1,6)');
 $p=quantaTimeRevisionPreview(1,7,'late-1');$corrected=quantaTimeRevisionApply(1,7,'late-1',$p['review_hash'],'Correct late source hours');
+$pdo->exec('DELETE FROM tenant_staffing_settings WHERE tenant_id=1');
 $replacement=(int)$corrected['result']['new_entry_ids']['regular'];
-$check((int)timeEntryGet($replacement)['timesheet_id']===$supplement&&$preserved()===$original,'source correction stays in its supplement and does not withdraw the primary accounting intent');
+$check((int)timeEntryGet($replacement)['timesheet_id']===$supplement&&$preserved()===$original,'source correction retains its supplement calendar even after settings change, without withdrawing primary accounting intent');
 $before=$snapshot();$applyFile($migration);$check($snapshot()===$before,'migration replay retains all primary, supplemental and correction evidence');
 $check($fails(fn()=>$pdo->exec('INSERT INTO staffing_timesheets(tenant_id,person_id,period_start,period_end) VALUES(1,19,"2026-09-28","2026-10-04")')),'database still permits only one primary header per person and week');
 // An independent connection must wait on the parent before allocating another sequence.

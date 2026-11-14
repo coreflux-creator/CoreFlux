@@ -157,18 +157,21 @@ function quantaTimeRevisionSnapshot(PDO $pdo, int $tenant, int $actor, string $i
     }
     if (!$active) throw new RuntimeException('No current Core source components are available.');
     [$start,$end]=timeWeekBounds($entry['work_date']);
-    $s=$pdo->prepare('SELECT * FROM staffing_timesheets WHERE tenant_id=? AND person_id=? AND period_start=?'.staffingTimesheetPrimaryClause().' FOR UPDATE');
-    $s->execute([$tenant,(int)$route['person_id'],$start]); $destination=$s->fetch(PDO::FETCH_ASSOC)?:null;
     // A correction inside an existing supplement stays in that review unit.
     // Never move its replacement rows into the preserved primary week.
     $originalHeaders=array_keys($headers);$matching=[];
     foreach ($originalHeaders as $headerId) {
         $original=staffingTimesheetRow($tenant,(int)$headerId,true);
-        if ($original && (int)$original['person_id']===(int)$route['person_id'] && $original['period_start']===$start && $original['period_end']===$end) $matching[]=$original;
+        if ($original && (int)$original['person_id']===(int)$route['person_id'] && $entry['work_date']>=$original['period_start'] && $entry['work_date']<=$original['period_end']) $matching[]=$original;
     }
     if (count($matching)>1) throw new RuntimeException('The source spans different review records. Reconcile its original timesheets first.');
-    if ($matching) $destination=$matching[0];
-    elseif ($destination && !in_array($destination['status'],['draft','submitted','rejected'],true)) throw new RuntimeException('The corrected date belongs to another approved week. Review a supplemental destination before moving this source.');
+    if ($matching) {
+        $destination=$matching[0];$start=$destination['period_start'];$end=$destination['period_end'];
+    } else {
+        $s=$pdo->prepare('SELECT * FROM staffing_timesheets WHERE tenant_id=? AND person_id=? AND period_start=?'.staffingTimesheetPrimaryClause().' FOR UPDATE');
+        $s->execute([$tenant,(int)$route['person_id'],$start]);$destination=$s->fetch(PDO::FETCH_ASSOC)?:null;
+        if ($destination && !in_array($destination['status'],['draft','submitted','rejected'],true)) throw new RuntimeException('The corrected date belongs to another approved week. Review a supplemental destination before moving this source.');
+    }
     if ($destination) $headers[(int)$destination['id']]=null;
     foreach ($headers as $headerId=>$_) {
         $s=$pdo->prepare('SELECT * FROM staffing_timesheets WHERE tenant_id=? AND id=? FOR UPDATE');
@@ -181,6 +184,7 @@ function quantaTimeRevisionSnapshot(PDO $pdo, int $tenant, int $actor, string $i
     }
     $s=$pdo->prepare('SELECT * FROM time_periods WHERE tenant_id=? AND start_date<=? AND end_date>=? ORDER BY start_date DESC FOR UPDATE');
     $s->execute([$tenant,$entry['work_date'],$entry['work_date']]); $destinationPeriods=$s->fetchAll(PDO::FETCH_ASSOC);
+    if (count($destinationPeriods)>1) throw new RuntimeException('The corrected date belongs to overlapping Core time periods. Align those periods first.');
     foreach ($destinationPeriods as $period) $periods[(int)$period['id']]=$period;
     foreach ($periods as $periodId=>$_) {
         $s=$pdo->prepare('SELECT * FROM time_periods WHERE tenant_id=? AND id=? FOR UPDATE');

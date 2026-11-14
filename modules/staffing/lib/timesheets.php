@@ -537,7 +537,7 @@ function staffingTimesheetWeek(int $personId, string $periodStart, string $perio
           WHERE te.tenant_id = :tenant_id
             AND te.person_id = :pid
             AND te.work_date BETWEEN :ps AND :pe
-            AND te.timesheet_id = :header_id
+            AND (te.timesheet_id = :header_id OR te.timesheet_id IS NULL)
             AND te.status != 'superseded'
           ORDER BY te.placement_id, te.work_date, te.id",
         ['pid' => $personId, 'ps' => $periodStart, 'pe' => $periodEnd, 'placements_tid' => staffingPlacementsTenantId(), 'header_id'=>(int)($header['id']??0)]

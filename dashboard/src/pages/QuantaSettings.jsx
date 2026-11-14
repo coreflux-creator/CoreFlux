@@ -234,15 +234,20 @@ export default function QuantaSettings() {
 
   const importSelected = () => run('import', async () => {
     if (!selected.length) throw new Error('Select ready entries first');
+    const workspaceId = status.data?.workspace?.id;
+    if (identityScopeRef.current !== identityScope || (getPinnedTenantId() && String(getPinnedTenantId()) !== String(workspaceId))) throw new Error('The workspace changed. Preview its source again.');
+    const options = { timeoutMs: 120000, headers: { 'X-CoreFlux-Tenant-Id': String(workspaceId) } };
     const sourceReviews = Object.fromEntries((preview?.rows || []).filter(row => selected.includes(row.id) && row.status === 'verify_source').map(row => [row.id, row.source_review_hash]));
     if (Object.keys(sourceReviews).length && !confirmSource) throw new Error('Confirm the original Quanta company for the selected historical time');
     const destinationReviews = Object.fromEntries((preview?.rows || []).filter(row => selected.includes(row.id) && row.status === 'supplement').map(row => [row.id, row.destination_review_hash]));
     if (Object.keys(destinationReviews).length && !confirmSupplements) throw new Error('Confirm the supplemental timesheets shown in this review');
     const result = await api.post(`${endpoint}import`, { changed_since: since, source_status: sourceStatus, entry_ids: selected,
       destination_reviews: destinationReviews, confirm_supplements: confirmSupplements,
-      source_reviews: sourceReviews, confirm_original_workspace_id: confirmSource ? preview?.source_workspace?.id : null }, { timeoutMs: 120000 });
+      source_reviews: sourceReviews, confirm_original_workspace_id: confirmSource ? preview?.source_workspace?.id : null }, options);
+    if (identityScopeRef.current !== identityScope || (getPinnedTenantId() && String(getPinnedTenantId()) !== String(workspaceId))) throw new Error('The workspace changed. Check the original company import before continuing.');
     setNotice(`${result.inserted} time rows imported, ${result.updated} updated, ${result.source_verified || 0} historical source associations confirmed. ${result.timesheets.length} weekly timesheets ready for review.`);
-    const data = await api.post(`${endpoint}preview`, { changed_since: since, source_status: sourceStatus, offset }, { timeoutMs: 120000 });
+    const data = await api.post(`${endpoint}preview`, { changed_since: since, source_status: sourceStatus, offset }, options);
+    if (identityScopeRef.current !== identityScope || (getPinnedTenantId() && String(getPinnedTenantId()) !== String(workspaceId))) return;
     setPreview(data); setSelected([]);
   });
 
@@ -424,7 +429,7 @@ export default function QuantaSettings() {
           </div>
           {preview.total === 0 && <div style={{ padding: 16, color: 'var(--cf-text-secondary)' }}>No approved Quanta entries changed in this window. Draft timesheets stay in Quanta until reviewed and approved there.</div>}
           {needsSourceConfirmation && <label style={{ display: 'flex', gap: 8, marginTop: 14, fontSize: 13 }}><input type="checkbox" checked={confirmSource} disabled={!!busy} onChange={e => setConfirmSource(e.target.checked)} />I confirm the selected historical time originally came from {preview.source_workspace?.name} ({preview.source_workspace?.id}). Associate this company with those matching records; retain their hours and approval.</label>}
-          {needsSupplementConfirmation && <label style={{ display: 'flex', gap: 8, marginTop: 14, fontSize: 13 }}><input type="checkbox" checked={confirmSupplements} disabled={!!busy} onChange={e => setConfirmSupplements(e.target.checked)} />Create the supplemental timesheets shown above for new independent review. Preserve the original weeks, approvals and downstream records.</label>}
+          {needsSupplementConfirmation && <label style={{ display: 'flex', gap: 8, marginTop: 14, fontSize: 13 }}><input data-testid="confirm-supplemental-time" type="checkbox" checked={confirmSupplements} disabled={!!busy} onChange={e => setConfirmSupplements(e.target.checked)} />Create the supplemental timesheets shown above for new independent review. Preserve the original weeks, approvals and downstream records.</label>}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
             <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-secondary" type="button" disabled={!!busy || offset === 0} onClick={() => showPreview(Math.max(0, offset - 200))}><ArrowLeft size={15} /> Previous</button><button className="btn btn-secondary" type="button" disabled={!!busy || offset + 200 >= preview.total} onClick={() => showPreview(offset + 200)}>Next <ArrowRight size={15} /></button></div>
             <button className="btn btn-primary" type="button" disabled={!!busy || !selected.length || (needsSourceConfirmation && !confirmSource) || (needsSupplementConfirmation && !confirmSupplements)} onClick={importSelected}><Check size={15} /> {needsSourceConfirmation ? 'Apply' : 'Import'} {selected.length} selected</button>

@@ -73,6 +73,16 @@ test('placement timesheet detail rejects a response for a different workspace', 
   finally { act(() => tree.unmount()); }
 });
 
+for (const status of ['submitted','approved']) test(`supplemental ${status} detail identifies its preserved parent and avoids the primary editing grid`,async()=>{
+  view=data(false);view.timesheet={...row,status,supplement_of_id:8,supplement_sequence:2};failure=null;pin='2002';
+  const tree=await open(Detail);try{
+    assert.match(text(tree.root),/Supplement 2/);
+    assert.ok(tree.root.findAllByType('a').some(a=>a.props.href==='/modules/staffing/timesheets/8'));
+    assert.equal(id(tree,'timesheet-detail-open-week').length,0);
+    assert.match(text(tree.root),/Original assignment/);
+  }finally{act(()=>tree.unmount());}
+});
+
 for (const [kind,fields] of [
   ['approved',{status:'approved'}],['superseded',{status:'superseded'}],
   ['Quanta source',{quanta_entry_id:'quanta-original'}],['unmapped Quanta source',{source_system:'quanta'}],
