@@ -16,7 +16,7 @@
         $placement=$insert('placements',['tenant_id'=>$tenant,'person_id'=>$person,'title'=>'Submission assignment','status'=>'active','engagement_type'=>'w2','start_date'=>'2026-10-01','end_date'=>'2026-12-31','worksite_country'=>'US']);
         $rate=$insert('placement_rates',['tenant_id'=>$tenant,'placement_id'=>$placement,'effective_from'=>'2026-10-01','bill_rate'=>100,'pay_rate'=>60,'approved_at'=>'2026-10-01 12:00:00']);
         RBACResolver::grantModule($member,'time','write',[$workspace],$actor);
-        RBACResolver::grantModule($member,'staffing','write',[$workspace],$actor);
+        RBACResolver::grantModule($member,'staffing','admin',[$workspace],$actor);
         $body=['placement_id'=>$placement,'work_date'=>'2026-10-05','category'=>'regular_billable','hours'=>8];
         [$status,$created]=$request('POST',$api.'?action=bulk_create',['entries'=>[$body,array_replace($body,['work_date'=>'2026-10-06'])]],true,$workspace);
         $expect($status===201&&$created['created']===2,'Submission setup creates two native draft entries');
@@ -81,7 +81,7 @@
         $pdo->prepare('UPDATE time_entries SET status="draft",approved_at=NULL,approved_by_user_id=NULL,rate_snapshot_id=NULL WHERE id IN (?,?)')->execute($ids);
         $pdo->prepare('UPDATE staffing_timesheets SET status="draft" WHERE id=?')->execute([$header]);
         RBACResolver::grantModule($member,'time','read',[$workspace],$actor);
-        RBACResolver::grantModule($member,'staffing','read',[$workspace],$actor);
+        RBACResolver::grantModule($member,'staffing','write',[$workspace],$actor);
         $before=$snapshot($tables);
         foreach($paths as[$path,$payload])$expect($request('POST',$path,$payload,true,$workspace)[0]===403&&$snapshot($tables)===$before,'Self-service permission cannot submit another worker’s time');
         $q=$pdo->prepare('SELECT email FROM users WHERE id=?');$q->execute([$actor]);$accountEmail=$q->fetchColumn();
