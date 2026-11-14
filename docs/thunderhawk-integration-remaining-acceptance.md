@@ -2,6 +2,16 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 13 reviewed client time links — source accepted, full pilot still pending
+
+Exact source `603b036d` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43546950036): **861 independent-connection checks**, including **37 client-link checks**; **953 native-session checks**; and **832 native HTTP checks**, including **36 client-link checks**. Temporary actor, server and private-session cleanup passed. [Pinned evidence](../deploy/thunderhawk-client-time-links-preparation-20261113.json). This source is not installed. [Behavior and remaining limits](thunderhawk-client-time-links.md).
+
+Generic client links now preserve complete issued facts and stable identities, require the displayed decision revision, record the actual external reviewer and consume or revoke credentials atomically with mandatory receipts. Partial/stale selections, changed rates/recipients, revoked links and repeated responses refuse without partial decisions. Completing a week also validates already approved siblings.
+
+Read-only verification at **2026-11-14T02:34:03+00:00** confirmed pilot `4bc10bb0`, 367 pinned files, 378 tables and all 35,304 rows unchanged, with configuration and temporary-access cleanup preserved.
+
+Weekly email-token handling, preapproved CSV, durable financial handoff and frozen-rate enforcement remain open, along with full financial corrections/provenance, remaining field/reference/category/period semantics, required migrations, guarded installation and the complete signed-in Quanta/PurePay/PurePayroll round trip. Production, providers and Arabella are unchanged. The full integration goal remains active and incomplete.
+
 ## November 13 reviewed native time decisions — source accepted, client links in progress
 
 Exact source `947ce2ee` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43545405891): **824 independent-connection checks**, including **49 reviewed-decision checks**; **953 native-session checks**; and **796 native HTTP checks**, including **24 reviewed-decision checks**. Temporary actor, server and private-session cleanup passed. [Pinned evidence](../deploy/thunderhawk-time-decision-review-preparation-20261113.json). This source is not installed. [Behavior and limits](thunderhawk-time-decision-review.md).
