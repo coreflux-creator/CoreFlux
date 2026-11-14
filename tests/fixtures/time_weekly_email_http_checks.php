@@ -23,6 +23,8 @@ try {[$status,$muted]=$nativeRequest('POST',$weeklyPath,$weeklyBody,true,$worksp
 finally {$pdo->prepare('DELETE FROM tenant_mail_senders WHERE id=?')->execute([$mute]);}
 [$status,$receipt]=$nativeRequest('POST',$weeklyPath,$weeklyBody,true,$workspace);
 $expect($status===202&&$receipt['sent']===false&&!isset($receipt['approve_url'],$receipt['reject_url'],$receipt['token'])&&isset($receipt['token_id']),'Weekly log-only delivery is not reported sent and exposes no reviewer secret');
+$mailQuery=$pdo->prepare('SELECT body_text,body_html FROM mail_outbox WHERE tenant_id=? AND module="staffing" AND purpose="timesheets" ORDER BY id DESC LIMIT 1');$mailQuery->execute([$workspace]);$storedMail=$mailQuery->fetch(PDO::FETCH_ASSOC);
+$expect($storedMail&&!preg_match('/[?&]t=[a-f0-9]{64}/',implode(' ',$storedMail))&&str_contains($storedMail['body_html'],'[redacted]'),'Weekly delivery history redacts both plain and HTML-escaped reviewer credentials');
 $issueWeek=static fn()=>staffingEmailReviewIssue($workspace,$actor,$weeklySheet,$clientEmail,'Synthetic manager');
 $issued=$issueWeek();$old=$read('approval_tokens',$issued['token_id']);$before=$snapshot($weeklyTables);
 $pdo->exec("CREATE TRIGGER cf_http_weekly_receipt BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.tenant_id=900021 AND NEW.event='time.timesheet.email_token_issued' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic weekly issue receipt failure'; END IF; END");

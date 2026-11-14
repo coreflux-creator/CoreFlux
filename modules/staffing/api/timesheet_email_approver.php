@@ -21,11 +21,13 @@ $subject='Timesheet awaiting review — '.$tokens['worker_name'].', week of '.$h
 $sent=false;$errorMessage=null;
 try {
     // Keep tenant Timesheets sender settings, mute and suppression controls.
+    $redactions=[$tokens['approve_url'],$tokens['reject_url']];
+    $redactions=array_merge($redactions,array_map(static fn($url)=>htmlspecialchars($url,ENT_QUOTES,'UTF-8'),$redactions));
     $result=mailerSend([
         'to'=>$email,'subject'=>$subject,'body_html'=>$html,
         'body_text'=>'Review the complete week and confirm your decision: '.$tokens['approve_url']."\n".'To review rejection: '.$tokens['reject_url'],
         'module'=>'staffing','purpose'   => 'timesheets','tenant_id' => $tenantId,
-        'outbox_redactions'=>[$tokens['approve_url'],$tokens['reject_url']],
+        'outbox_redactions'=>$redactions,
     ]);
     $sent=($result['ok']??false)===true && ($result['driver']??'')!=='log';
     if (!$sent) $errorMessage='The approval email was not delivered. Check email setup before requesting a new link.';
