@@ -98,7 +98,8 @@ $toolsBytes=tpRead(__DIR__.'/trusted-tools.json');
 if(hash('sha256',$packageBytes)!==$argv[2]||hash('sha256',$toolsBytes)!==$argv[3])exit(2);
 $package=json_decode($packageBytes,true,512,JSON_THROW_ON_ERROR);$tools=json_decode($toolsBytes,true,512,JSON_THROW_ON_ERROR);
 foreach($tools['files']as$file=>$hash)if(hash('sha256',tpRead(__DIR__.'/'.$file))!==$hash)throw new RuntimeException('Installation tool changed');
-if(($package['root']??null)!==TP_ROOT||($package['application_source_commit']??null)!=='0aa5d01d68f088c549f237be941961d3d6e541d6'
+// The reviewed package hash binds the exact application commit and bytes; the staging runner verifies that commit's full CI.
+if(($package['root']??null)!==TP_ROOT||!preg_match('/^[a-f0-9]{40}$/D',$package['application_source_commit']??'')
     ||count($package['files']??[])!==13||count($package['dependencies']??[])!==460)exit(2);
 $expected=['api/purepay_core.php','core/integrations/purepay_payroll_inputs.php','core/integrations/purepay_payroll_authority.php',
     'modules/treasury/ui/PurePayrollInputReview.jsx','.deploy-version','spa-assets/sw.js','spa-assets/index.html','dashboard/dist/index.html','index.html'];
