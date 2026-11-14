@@ -47,6 +47,8 @@ function payrollExportRows(int $tenant,int $runId): array
         $owner=peopleEmploymentOwner($tenant);
         $q=$pdo->prepare('SELECT * FROM payroll_line_items WHERE tenant_id=? AND run_id=? ORDER BY id FOR UPDATE');
         $q->execute([$tenant,$runId]);$lines=$q->fetchAll(PDO::FETCH_ASSOC);$out=[];
+        if (count($lines)!==(int)$run['employee_count']) throw new RuntimeException('Payroll employee lines do not match the run. Review the calculation before exporting.',409);
+        $grossTotal=0;$netTotal=0;
         foreach ($lines as $line) {
             $q=$pdo->prepare('SELECT id,employee_number,legal_first_name,legal_last_name,work_email,personal_email
                 FROM people_employees WHERE tenant_id=? AND id=?');
@@ -97,6 +99,8 @@ function payrollExportRows(int $tenant,int $runId): array
                 }
             }
             if ($total!==(int)$line['gross_cents']) throw new RuntimeException('Payroll earnings do not match the saved gross amount. Review the calculation before exporting.',409);
+            $grossTotal=payrollExportAdd($grossTotal,(int)$line['gross_cents']);
+            $netTotal=payrollExportAdd($netTotal,(int)$line['net_cents']);
             $out[]=[
                 'run_id'=>(string)$runId,'run_status'=>$run['status'],'line_item_id'=>(string)$line['id'],
                 'pay_date'=>$run['pay_date'],'period_start'=>$run['period_start'],'period_end'=>$run['period_end'],
@@ -123,6 +127,9 @@ function payrollExportRows(int $tenant,int $runId): array
                 'reimbursement_dollars'=>payrollExportDollars($supplement['reimbursement']),
                 'bank_account_number'=>'','bank_routing_number'=>'','bank_account_type'=>'',
             ];
+        }
+        if ($grossTotal!==(int)$run['gross_total_cents'] || $netTotal!==(int)$run['net_total_cents']) {
+            throw new RuntimeException('Payroll line totals do not match the run. Review the calculation before exporting.',409);
         }
         if ($ownsTransaction) $pdo->commit();
         return $out;

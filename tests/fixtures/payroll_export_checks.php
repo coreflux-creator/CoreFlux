@@ -92,6 +92,16 @@ function payrollExportCheckSharedDirectory(PDO $pdo,int $tenant,int $run,callabl
         $check($row['people_owner_tenant_id']===(string)$tenant && $row['employee_number']!=='' && $row['person_number']!==''
             && $row['regular_hours']==='1.2345' && $row['gross_pay_cents']==='3704',
             'child-company payroll exports its explicitly shared parent employee with exact fractional hours');
+        $pdo->prepare('UPDATE payroll_runs SET computation_revision=0,computation_sha256=NULL WHERE tenant_id=999 AND id=?')->execute([$run]);
+        $check(payrollExportRows(999,$run)[0]['calculation_review_status']==='historical_unverified',
+            'unsealed historical payroll is explicitly labelled without claiming reviewed evidence');
+        $pdo->prepare('UPDATE payroll_runs SET net_total_cents=net_total_cents+1 WHERE tenant_id=999 AND id=?')->execute([$run]);
+        $check($refuses(fn()=>payrollExportRows(999,$run),'line totals do not match'),
+            'unsealed historical totals must still reconcile to exported lines');
+        $pdo->prepare('UPDATE payroll_runs SET net_total_cents=net_total_cents-1,employee_count=employee_count+1 WHERE tenant_id=999 AND id=?')->execute([$run]);
+        $check($refuses(fn()=>payrollExportRows(999,$run),'employee lines do not match'),
+            'unsealed historical exports cannot silently omit a missing employee line');
+        $pdo->prepare('UPDATE payroll_runs SET employee_count=employee_count-1 WHERE tenant_id=999 AND id=?')->execute([$run]);
         $pdo->exec('UPDATE tenant_module_scope SET scope_mode="isolated" WHERE tenant_id=999 AND module_key="people"');
         $check($refuses(fn()=>payrollExportRows(999,$run),'current People directory'),
             'changing the directory to isolated is honored immediately without reusing cached ownership');
