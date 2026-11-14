@@ -1,8 +1,9 @@
 <?php
 /** Exact pilot upgrade primitives. No CLI entry point and no automatic migration. */
 declare(strict_types=1);
-require_once __DIR__.'/../core/migration_hash.php';
-require_once __DIR__.'/../core/migrate.php';
+// Private installation tooling may use the already pinned application's parser.
+if(!function_exists('corefluxMigrationHash'))require_once __DIR__.'/../core/migration_hash.php';
+if(!function_exists('coreflux_split_sql_statements'))require_once __DIR__.'/../core/migrate.php';
 
 const TH_TIME_PAYROLL_MIGRATIONS = [
     'core/migrations/199_company_active_name.sql'=>'74d451442502e0c412a3273b9ff49c1ab750275ed865d1cb8735aec751257875',

@@ -6,9 +6,10 @@ if(PHP_SAPI!=='cli'||getenv('COREFLUX_ENV')!=='coreaccounting'
     ||!in_array('--confirm-disposable-fixture',$argv,true))exit(2);
 require_once __DIR__.'/../core/db.php';
 require_once __DIR__.'/../deploy/thunderhawk_time_payroll_schema.php';
+require_once __DIR__.'/../deploy/thunderhawk_pilot_backup.php';
 $source=getDB();
 if(!$source||$source->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
-$scratch='coreaccounting_time_payroll_upgrade';$created=false;$locked=false;$pdo=null;$checks=[];
+$scratch='coreaccounting_time_payroll_upgrade';$created=false;$locked=false;$pdo=null;$checks=[];$backupDirectory=null;
 $check=static function(bool $ok,string $name)use(&$checks):void{if(!$ok)throw new RuntimeException('FAIL '.$name);$checks[]=$name;echo 'PASS '.$name."\n";};
 $plan=thunderhawkTimePayrollMigrationPlan(dirname(__DIR__));
 $connect=static fn()=>new PDO('mysql:host='.DB_HOST.';dbname='.$scratch.';charset=utf8mb4',DB_USER,DB_PASS,
@@ -22,8 +23,8 @@ try{
     $pdo->exec('ALTER TABLE companies ADD UNIQUE KEY uq_companies_tenant_name(tenant_id,name)');
     $pdo->exec('ALTER TABLE payroll_line_items MODIFY hours_regular DECIMAL(8,2) NOT NULL DEFAULT 0, MODIFY hours_overtime DECIMAL(8,2) NOT NULL DEFAULT 0');
     $pdo->exec('ALTER TABLE payroll_earnings MODIFY hours DECIMAL(8,2) NULL');
-    $pdo->exec('CREATE TABLE pilot_unrelated_records(id INT PRIMARY KEY,value VARCHAR(50)) ENGINE=InnoDB');
-    $pdo->exec("INSERT INTO pilot_unrelated_records VALUES(1,'preserve unrelated identity')");
+    $pdo->exec('CREATE TABLE pilot_unrelated_records(id INT PRIMARY KEY,value VARCHAR(50),payload LONGBLOB) ENGINE=InnoDB');
+    $pdo->prepare("INSERT INTO pilot_unrelated_records VALUES(1,'preserve unrelated identity',?)")->execute(["\0\xffquote'\"; DROP DATABASE never_execute;\n"]);
     $pdo->exec("INSERT INTO companies(id,tenant_id,name,deleted_at) VALUES
         (1,2002,'CI active company',NULL),
         (2,2002,'CI retired company','2026-10-01 00:00:00')");
@@ -39,6 +40,19 @@ try{
     $baseline=thunderhawkTimePayrollSchemaBaseline($pdo,$plan);
     $check(count($plan)===7,'all seven pending migrations are pinned to reviewed source');
     $check($baseline['tables']['payroll_runs']['rows']===1&&$baseline['tables']['payroll_earnings']['rows']===3,'old approved payroll and mixed historical earnings are populated');
+    $backupDirectory=sys_get_temp_dir().'/thunderhawk-upgrade-backup-'.bin2hex(random_bytes(12));
+    if(!mkdir($backupDirectory,0700))throw new RuntimeException('Private rehearsal backup directory unavailable');
+    $pdo->exec('SET autocommit=0');
+    $pdo->exec('LOCK TABLES '.implode(',',array_map(static fn($t)=>'`'.$t.'` READ',array_keys($baseline['tables']))));$locked=true;
+    $backup=thunderhawkPilotDatabaseCapture($pdo,$backupDirectory.'/before.sql');
+    $check($backup['bytes']>100&&(fileperms($backup['path'])&0777)===0600,'native database backup succeeds under shared read locks and remains private');
+    $check(thunderhawkTimePayrollTableState($pdo)===$baseline['tables'],'native backup leaves every business row and binary value intact');
+    thunderhawkTimePayrollUnlock($pdo);$locked=false;
+    $refused=false;try{thunderhawkPilotDatabaseScope($source);}catch(RuntimeException $e){$refused=true;}
+    $check($refused,'backup and restore reject the parent accounting database');
+    $bad=$backup;$bad['sha256']=str_repeat('0',64);
+    $refused=false;try{thunderhawkPilotDatabaseRestore($pdo,$bad);}catch(RuntimeException $e){$refused=true;}
+    $check($refused&&thunderhawkTimePayrollTableState($pdo)===$baseline['tables'],'changed backup fingerprint is refused before restoring any records');
     $journal=[];$record=static function(array $event)use(&$journal):void{$journal[]=$event;};
     $prepared=thunderhawkTimePayrollPrepareEvidence($pdo,$plan,$record);
     $check(count($prepared)===4,'only the four empty evidence tables are prepared before locking');
@@ -102,10 +116,21 @@ try{
     unset($projected['_migrations']);$expected=$baseline['tables'];unset($expected['_migrations']);
     $check($projected===$expected,'partial DDL failure preserves all original business values');
     thunderhawkTimePayrollUnlock($pdo);$locked=false;
+    foreach(TH_TIME_PAYROLL_NEW_TABLES as$t){
+        if((int)$pdo->query('SELECT COUNT(*) FROM `'.$t.'`')->fetchColumn()!==0)throw new RuntimeException('Recovery cannot remove used evidence');
+        $pdo->exec('DROP TABLE `'.$t.'`');
+    }
+    $restored=thunderhawkPilotDatabaseRestore($pdo,$backup);
+    $check($restored['native_restore_completed']&&$restored['backup_sha256']===$backup['sha256'],'native restore completes from the exact pre-upgrade backup');
+    $check(thunderhawkTimePayrollSchemaBaseline($pdo,$plan)===$baseline,'restored schema and all rows exactly match the original baseline after partial DDL');
 }finally{
     if($locked&&$pdo)thunderhawkTimePayrollUnlock($pdo);
     $pdo=null;
     if($created)$source->exec('DROP DATABASE '.$scratch);
+    if($backupDirectory!==null){
+        foreach(glob($backupDirectory.'/*')?:[]as$file){if(is_link($file)||!is_file($file))throw new RuntimeException('Unexpected private backup entry');unlink($file);}
+        rmdir($backupDirectory);
+    }
 }
 $check((int)$source->query("SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='".$scratch."'")->fetchColumn()===0,'disposable upgrade schema and synthetic rows are removed');
 echo count($checks)." populated pilot upgrade database checks passed\n";

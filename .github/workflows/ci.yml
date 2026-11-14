@@ -659,6 +659,10 @@ jobs:
           php tests/payroll_source_earnings_smoke.php
           php tests/payroll_approved_earnings_db_check.php --confirm-disposable-fixture
           php tests/payroll_calculation_review_db_check.php --confirm-disposable-fixture
+          if ! command -v mariadb-dump >/dev/null || ! command -v mariadb >/dev/null; then
+            sudo apt-get -o APT::Update::Error-Mode=any update -qq
+            sudo apt-get install -y --no-install-recommends mariadb-client
+          fi
           php tests/thunderhawk_time_payroll_upgrade_db_check.php --confirm-disposable-fixture
 
       - name: Exercise atomic time approval and weekly artifact reconciliation
