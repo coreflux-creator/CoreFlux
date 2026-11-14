@@ -4,7 +4,7 @@ declare(strict_types=1);
 if(PHP_SAPI!=='cli'||getenv('COREFLUX_ENV')!=='coreaccounting'||getenv('COREFLUX_STANDALONE_DATABASE')!=='coreaccounting_ci'||!in_array('--confirm-disposable-fixture',$argv,true))exit(2);
 require_once __DIR__.'/../core/db.php';require_once __DIR__.'/../deploy/thunderhawk_supplemental_time_schema.php';require_once __DIR__.'/../deploy/thunderhawk_pilot_backup.php';
 $source=getDB();if($source->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
-$scratch='coreaccounting_supplement_upgrade';$created=false;$locked=false;$pdo=null;$directory=null;$checks=0;
+$scratch='coreaccounting_time_payroll_upgrade';$created=false;$locked=false;$pdo=null;$directory=null;$checks=0;
 $check=static function(bool $ok,string $label)use(&$checks):void{if(!$ok)throw new RuntimeException('FAIL '.$label);$checks++;echo 'PASS '.$label."\n";};
 $refuses=static function(callable $fn,string $text):bool{try{$fn();return false;}catch(Throwable $e){if(!str_contains($e->getMessage(),$text))throw $e;return true;}};
 $connect=static fn()=>new PDO('mysql:host='.DB_HOST.';dbname='.$scratch.';charset=utf8mb4',DB_USER,DB_PASS,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);
