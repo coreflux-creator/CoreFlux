@@ -58,8 +58,15 @@ function tpHttp(string $path,string $method='GET',?string $token=null,?array $pa
 function tpChannel(array $state,array $request): array {
     $r=tpHttp($state['channel']['path'],'POST',$state['channel_token'],$request);
     $value=json_decode($r['body'],true);
+    $observation=['http_status'=>$r['status'],'response'=>$value,'body_sha256'=>hash('sha256',$r['body'])];
+    tpPrivate(__DIR__.'/last-channel-observation.json',json_encode($observation,JSON_THROW_ON_ERROR),file_exists(__DIR__.'/last-channel-observation.json'));
     if($r['status']!==200||!is_array($value)||!($value['pool']['request_pool_quiet']??false)
         ||($value['operation']??null)!==$state['operation'])throw new RuntimeException('Pilot request pool is not verifiably drained');
+    $pid=$value['self_pid']??null;
+    if(!is_int($pid)||$pid<1)throw new RuntimeException('Native web process identity unavailable');
+    $status=@file_get_contents('/proc/'.$pid.'/status');$cmd=@file_get_contents('/proc/'.$pid.'/cmdline');
+    if(!is_string($status)||!preg_match('/^Uid:\s+1009\s+1009\s+1009\s+1009\s*$/m',$status)
+        ||!is_string($cmd)||!str_starts_with($cmd,'php-fpm: pool muzqvdvqbx-82'))throw new RuntimeException('Native web process owner or pool differs');
     return $value;
 }
 function tpCache(array $state,array $files,string $phase): array {
@@ -110,6 +117,7 @@ if(($package['root']??null)!==TP_ROOT||($package['application_source_commit']??n
 $lock=fopen(TP_PRIVATE.'/contact-install.lock','c');if(!$lock||!flock($lock,LOCK_EX|LOCK_NB))exit(2);
 require_once TP_ROOT.'/core/db.php';require_once TP_ROOT.'/core/integrations/identity.php';require_once TP_ROOT.'/core/migrate.php';
 require_once __DIR__.'/full_core_maintenance_host.php';require_once __DIR__.'/full_core_maintenance_channel.php';
+require_once __DIR__.'/thunderhawk_pilot_channel.php';
 require_once __DIR__.'/thunderhawk_time_payroll_schema.php';require_once __DIR__.'/thunderhawk_pilot_backup.php';
 // The application bootstrap uses global variables, including $host for PDO.
 // Load operation inputs afterward and keep their names separate from that scope.
@@ -171,8 +179,13 @@ try{
     $spec=['operation'=>$operation,'candidate_commit'=>$package['application_source_commit'],'token_sha256'=>hash('sha256',$token),
         'held_web_sha256'=>hash('sha256',fullCoreMaintenanceWebRule($operation,$path)),
         'library_sha256'=>hash_file('sha256',__DIR__.'/full_core_maintenance_channel.php'),'path'=>$path,
-        'root'=>TP_ROOT,'private_directory'=>__DIR__,'host'=>TP_HOST,'pool'=>'muzqvdvqbx-82','issued_at'=>time(),'expires'=>time()+14400];
-    $probe=fullCoreMaintenanceChannelRender($spec);
+        'root'=>TP_ROOT,'private_directory'=>__DIR__,'host'=>TP_HOST,'pool'=>'muzqvdvqbx-82','installer_uid'=>1003,'issued_at'=>time(),'expires'=>time()+14400];
+    $candidateCache=[];$recoveryCache=[];
+    foreach($package['files']as$f=>$e)if(str_ends_with($f,'.php')){
+        $candidateCache[]=['path'=>$f,'sha256'=>$e['sha256']];
+        if($e['before_sha256']!==null)$recoveryCache[]=['path'=>$f,'sha256'=>$e['before_sha256']];
+    }
+    $probe=thunderhawkPilotChannelRender($spec,$candidateCache,$recoveryCache);
     $state=['operation'=>$operation,'candidate'=>$package['application_source_commit'],'package_sha256'=>$argv[2],
         'tools_sha256'=>$argv[3],'phase'=>'prepared','started_at'=>gmdate('c'),
         'channel'=>$spec,'channel_token'=>$token,'channel_file_sha256'=>hash('sha256',$probe),'production_changed'=>false]+tpProcessIdentity();$save();

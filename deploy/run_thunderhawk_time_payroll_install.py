@@ -19,6 +19,7 @@ WEB='/home/1516771.cloudwaysapps.com/muzqvdvqbx/public_html'
 SSH=['ssh','-T','-i','C:/Users/kunal/.ssh/coreflux_github_actions_rsa','-o','BatchMode=yes',
      '-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes','master_fpepuvndbb@138.197.121.111']
 FILES=['install_thunderhawk_time_payroll.php','thunderhawk_time_payroll_schema.php','thunderhawk_pilot_backup.php',
+       'thunderhawk_pilot_channel.php','thunderhawk_pilot_channel_web.php',
        'full_core_maintenance.php','full_core_maintenance_host.php','full_core_maintenance_channel.php',
        'full_core_maintenance_channel_web.php']
 sha=lambda b:hashlib.sha256(b).hexdigest()
