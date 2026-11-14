@@ -1,12 +1,16 @@
 # Incremental time and period alignment
 
-## Supplemental intake implementation — source only, November 14
+## Supplemental intake implementation — validated and prepared, November 14
 
 The current source resolves the same destination in preview and locked import. New Quanta source for an approved Core week requires an explicit review of a separate supplemental timesheet, linked to the preserved primary. A batch creates one supplement per primary, with its own entries, independent approval, frozen economics and accounting intent. Source changes, destination changes, locked periods and ambiguous overlapping periods invalidate intake. Exact source replay creates no additional review unit. Corrections within a supplement retain that unit.
 
 Module migration `008_supplemental_timesheets.sql` keeps original headers at sequence zero and replaces the person/week uniqueness with person/week/sequence uniqueness. The weekly grid remains primary-only and links each supplement; weekly financial totals explicitly include all review units. List/detail APIs and the field dictionary retain the parent/sequence/review fields. No original rate evidence is backfilled.
 
-PHP syntax and focused UI lint passed locally. The populated MariaDB fixture now exercises the actual import, rollback, retained old approval/reservation, independent approval, accounting intent, correction and two-connection parent lock. Full CI and hosted acceptance are pending. This source is not installed; the saved 75-minute source below is still unimported. The preceding accounting-production timing reply made no integration change.
+Source `329d9f8a` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43585438396). The populated MariaDB fixture passed 35 supplemental-time and 41 existing correction checks, exercising actual import/rollback, retained old approval/reservation, independent new approval, separate accounting intent, correction, cross-review capacity and two-connection parent contention. Source correction retains the original review calendar even after settings change. Provider transport in this database fixture is simulated. Fifty-four targeted rendered UI tests, PHP syntax, focused UI lint and the 6,136-module frontend build passed.
+
+The read-only pilot preflight matched all 463 installed runtime pins and private configuration. Header 8 is still approved for two hours; the saved 75-minute source has no Core import and the supplemental schema is absent. A 23-file package with 448 retained dependency pins, one migration and CI-built assets is prepared. [Pinned preparation evidence](../deploy/thunderhawk-supplemental-time-preparation-20261114.json). The preceding accounting-production timing reply made no integration change.
+
+This source is **not installed**. Next rehearse the owner-preserving schema installation and explicit recovery: the migration changes person/week uniqueness while retaining every original row. After guarded installation and native runtime readback, continue the same saved source through independent Core review and the held provider round trip. Hosted/browser acceptance, financial execution and the full integration outcome are not established by this preparation.
 
 The November 14 refreshed cross-system test has reached a concrete intake defect. It has **not completed the updated round trip**. Evidence: [source capture and native Core diagnostic](../deploy/thunderhawk-updated-roundtrip-period-conflict-20261114.json).
 

@@ -2,6 +2,14 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 14 supplemental Quanta time — validated and prepared, not installed
+
+The preceding accounting production-timing reply made no integration change. This continuation implemented the observed approved-week intake gap. Exact source `329d9f8a` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43585438396), including 35 new supplemental-time and 41 existing correction database checks. Fifty-four rendered UI tests and the 6,136-module build passed. Preview/import share destination checks; new late source requires a confirmed supplemental review, separate approval/economics and accounting intent. Original approvals, incomplete legacy rate evidence and payroll reservations remain untouched. Pending updates/corrections retain their supplemental header and calendar, and daily capacity includes every review unit.
+
+Read-only preflight matched all 463 installed runtime pins and configuration. A 23-file candidate with 448 retained dependency pins and one migration is prepared. Original header 8 remains approved for two hours, and the saved 75-minute source remains unimported. [Evidence](../deploy/thunderhawk-supplemental-time-preparation-20261114.json) · [Behavior and continuation](thunderhawk-incremental-time-period-alignment.md).
+
+Next rehearse the migration/paired recovery for the changed person-week uniqueness, install under the established pilot maintenance/backup procedure, and continue the same source through Core approval, Quanta acknowledgment and held PurePayroll input/result. No hosted application, production, Arabella or financial execution changed. The full integration goal and all other acceptance requirements remain open.
+
 ## November 14 updated cross-system source — captured; Core period conflict confirmed
 
 Read-only revalidation matched all 463 current Core runtime pins. A fresh 75-minute source for existing P-387 / PL-902 passed 18 Quanta native capture, replay, conflict and independent-approval checks. Existing provider records, runtime, configuration and the prior held $100 PurePayroll draft were preserved; both temporary sessions were revoked.
