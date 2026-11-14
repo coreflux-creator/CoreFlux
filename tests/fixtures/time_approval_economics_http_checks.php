@@ -26,9 +26,13 @@ foreach(['missing','corrupt','time_changed','approver_changed','approval_stamp_m
         $expect($refused,'Accounting refuses '.$case.' approved evidence instead of substituting a current rate');
     } finally {$pdo->rollBack();}
 }
+$parentMembership=(int)RBACResolver::activeMembership($actor,$tenant)['id'];
+$parentTimeAccess=RBACResolver::moduleAccessFor($parentMembership,'time');
+RBACResolver::grantModule($parentMembership,'time','read',[$tenant],$actor);
 $stateBefore=$snapshot($tables);
 $expect($nativeRequest('GET',$economicsPath,null,false,$workspace)[0]===401,'Accounting handoff requires a signed-in session');
-$expect($nativeRequest('GET',$economicsPath,null,true,$tenant)[0]===404,'Shared directory access cannot read a child company accounting handoff');
+[$foreignStatus,$foreignResult]=$nativeRequest('GET',$economicsPath,null,true,$tenant);
+$expect($foreignStatus===404,'An authorized parent time reader cannot read a child company accounting handoff: '.json_encode([$foreignStatus,$foreignResult]));
 [$status,$handoff]=$nativeRequest('GET',$economicsPath,null,true,$workspace);
 $expect($status===200&&$handoff['status']==='pending'&&$handoff['workspace_id']===$workspace&&!isset($handoff['events_json'])&&!isset($handoff['rate_json']),'Time review shows pending accounting without exposing private pay-rate or journal payloads');
 $expect($snapshot($tables)===$stateBefore,'Handoff inspection creates no financial or operational writes');
@@ -53,3 +57,5 @@ try {
     $message=staffingEmitWorkerHoursApprovedEvent($workspace,$sheet);
     $expect(str_contains((string)$message,'until the approval transaction commits')&&$snapshot($tables)===$before,'Nested accounting delivery is deferred without early journals or state changes');
 } finally {$pdo->rollBack();}
+if ($parentTimeAccess) RBACResolver::grantModule($parentMembership,'time',$parentTimeAccess['access_level'],json_decode($parentTimeAccess['sub_tenant_scope']??'null',true),$actor);
+else RBACResolver::revokeModule($parentMembership,'time',$actor);
