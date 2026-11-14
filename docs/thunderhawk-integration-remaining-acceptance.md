@@ -2,7 +2,15 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
-## November 14 current checkpoint — job source ownership installed and functionally accepted
+## November 14 current checkpoint — job/client references preserve native ownership
+
+The preceding accounting production-timing reply made no integration change. This continuation resumed the prepared job-reference release after confirming all eleven final [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43603704334) passed. Candidate `b3fda3bb` now protects native placement job choices and intentional clears, requires exact same-workspace source bindings and a transactional audit, and resolves an unambiguous active client through the current shared directory. Job creation/update, provider mapping and related placement links commit or roll back together. CI passed 172 job-source database, 961 independent-connection and 981 native-session HTTP checks.
+
+Isolated operation `b28fcc318435acb14596a0ea7cf5daf8` completed at 14:21:38 UTC. Fresh readback verified seven files, 481 retained dependency pins, no migration, all 382 tables and 36,136 original rows. Backup, private configuration, scheduler restoration and diagnostic removal were verified. The installed native-code fixture passed 97 checks and rolled back completely: original values unchanged, zero fixture tenants, no provider request. No browser behavior changed. [Evidence](../deploy/thunderhawk-job-reference-acceptance-20261114.json).
+
+The twelve native job fields now have source-backed definitions and JobDiva mappings; private client ownership state is restricted. Fresh inventory at 14:22:45 UTC has **2,144 entries and 180 unresolved field decisions**. Full requisition receivers in Quanta/PurePay/PurePayroll remain explicitly unsupported, rather than being inferred from placement assignment packets. Employment/compensation, placement, AP/AR and connector fields still need complete ownership/receiving-contract evidence, alongside the remaining portal/document/lifecycle and financial allocation/reconciliation journeys. The full integration goal stays active. No real payroll, payments, postings, production cutover or Arabella change occurred.
+
+## November 14 preceding checkpoint — job source ownership installed and functionally accepted
 
 Application `ff88d483` and installer `7f1bfb66` each passed all eleven CI jobs. The installer passed 24 populated migration/recovery checks and completed isolated operation `cb9a4085a2fe999fffeb6b024e80d3f8` at 13:41:59 UTC. Independent readback verified 20 files, 467 retained dependency pins, one nullable ownership column and its migration receipt; all 382 tables and 35,980 original rows were preserved. Configuration/schedules, backup, restored ingress and diagnostic removal were verified. [Installed evidence](../deploy/thunderhawk-job-source-acceptance-20261114.json).
 
