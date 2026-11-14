@@ -1,0 +1,191 @@
+{
+  "status": "source_capture_passed_core_import_blocked",
+  "recorded_at": "2026-11-14T09:58:46+00:00",
+  "installed_runtime_pins_verified": 463,
+  "quanta": {
+    "started_at": "2026-11-14T09:54:18.838255+00:00",
+    "phase": "complete",
+    "passed": true,
+    "pid": 3685689,
+    "checks": [
+      "admin_native_login",
+      "admin_company_identity",
+      "approver_native_login",
+      "approver_company_identity",
+      "unreviewed_assignment_refused",
+      "native_capture_75_minutes",
+      "capture_exact_replay",
+      "changed_capture_refused",
+      "current_week_reviewable",
+      "stale_week_refused",
+      "native_submission_preserves_actors_and_minutes",
+      "independent_native_approval",
+      "provider_runtime_configuration_and_held_payroll_unchanged",
+      "one_new_entry_and_sheet",
+      "persisted_time_identity_and_assignment",
+      "persisted_independent_approval",
+      "all_original_provider_records_preserved",
+      "temporary_native_sessions_revoked"
+    ],
+    "person_number": "P-387",
+    "placement_number": "PL-902",
+    "date": "2026-11-14",
+    "minutes": 75,
+    "capture_key": "e6f37484-aff6-4444-81db-3f92f4d97293",
+    "synthetic": true,
+    "production_changed": false,
+    "arabella_changed": false,
+    "financial_execution": false,
+    "browser_acceptance": false,
+    "entry_id": "5e72afa5-07b9-4681-bcc0-7e46379a205c",
+    "timesheet_id": "5bcf1d14-89c9-419b-a807-40d9c875003c",
+    "revoked_sessions": 2,
+    "changes": {
+      "audit_events": 8,
+      "auth_sessions": 2,
+      "magic_link_tokens": 1,
+      "manual_time_receipts": 1,
+      "time_entries": 1,
+      "timesheets": 1
+    },
+    "runtime_files_verified": 181,
+    "finished_at": "2026-11-14T09:54:22.777009+00:00"
+  },
+  "core_diagnostic": {
+    "status": "finished",
+    "pid": 393630,
+    "started_at": "2026-11-14T09:58:42+00:00",
+    "checks": [
+      "Observed Core calendar differs from the source week",
+      "Existing Core week is approved",
+      "New source has not been imported",
+      "Native synthetic operator signed in",
+      "Real Thunderhawk company access is denied",
+      "Native preview finds the new source with original worker and assignment identities",
+      "Native import refuses the previously approved Core week",
+      "Refused import leaves no partial source record",
+      "No schema changed",
+      "Every pre-existing Core row is unchanged",
+      "No change in time_entries",
+      "No change in staffing_timesheets",
+      "No change in quanta_time_imports",
+      "No change in payroll_source_claims",
+      "No change in payroll_source_authorities",
+      "No change in payroll_provider_results",
+      "No change in accounting_events",
+      "No change in accounting_journal_entries",
+      "No change in accounting_journal_entry_lines",
+      "No change in ap_payments",
+      "No change in billing_payments",
+      "Temporary access and credentials retired"
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/login.php",
+        "status": 302,
+        "tenant": 2002
+      },
+      {
+        "method": "POST",
+        "path": "/api/quanta.php?action=preview",
+        "status": 403,
+        "tenant": 2
+      },
+      {
+        "method": "POST",
+        "path": "/api/quanta.php?action=preview",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "method": "POST",
+        "path": "/api/quanta.php?action=import",
+        "status": 409,
+        "tenant": 2002
+      },
+      {
+        "method": "GET",
+        "path": "/logout.php",
+        "status": 302,
+        "tenant": 2002
+      }
+    ],
+    "passed": true,
+    "import_completed": false,
+    "browser_test": false,
+    "production_changed": false,
+    "arabella_changed": false,
+    "financial_execution": false,
+    "core_week": [
+      "2026-11-09",
+      "2026-11-15"
+    ],
+    "quanta_week": [
+      "2026-11-14",
+      "2026-11-20"
+    ],
+    "existing_header": {
+      "id": 8,
+      "status": "approved",
+      "period_start": "2026-11-09",
+      "period_end": "2026-11-15",
+      "total_hours": "2.00"
+    },
+    "actor_id": 114,
+    "membership_id": 102,
+    "preview_status": "ready",
+    "preview_message": "Ready for CoreFlux review",
+    "import_status": 409,
+    "import_response": {
+      "error": "Week of 2026-11-09 is already approved; reopen it before import",
+      "status": 409
+    },
+    "finding": "Calendar mismatch: preview does not establish that the destination week can accept the source.",
+    "cookie_removed": true,
+    "actor_retired": true,
+    "completed_at": "2026-11-14T09:58:46+00:00"
+  },
+  "pilot_calendars": {
+    "payroll_pay_schedules": [
+      {
+        "id": 3,
+        "tenant_id": 2002,
+        "name": "Synthetic lifecycle \u2014 PurePayroll test",
+        "frequency": "biweekly",
+        "period_start_anchor": "2026-11-09",
+        "active": 1
+      },
+      {
+        "id": 10,
+        "tenant_id": 2002,
+        "name": "Synthetic correction \u2014 Core time review",
+        "frequency": "biweekly",
+        "period_start_anchor": "2026-11-09",
+        "active": 1
+      }
+    ],
+    "tenant_digest_schedules": []
+  },
+  "older_source": {
+    "core_time_entry_id": 17,
+    "source_claim": "held",
+    "retained_rate_reader": "refuses_missing_original_rate_hash",
+    "original_rows_unchanged": true
+  },
+  "evidence_sha256": {
+    "updated-roundtrip-quanta-run.json": "6e37f593b7e953be3507782bdb90ab30e79f271df2c7f0e01f07a5b6eb505477",
+    "updated-roundtrip-core-result.json": "2fa287ece35a6ae34714a56af383d6eac1a3872cabf762da83c41ff923ab1a9d",
+    "updated-roundtrip-readiness-20261114.json": "30ee8eb87c1fc0b19eb8e111b8d68eddea477f377bb677b48b75f7e134feca80",
+    "updated-roundtrip-calendar-inventory.json": "06b42137f0e11ce42fa019b7b9d1d28de72e878dccdf0ea269bcd35bcd3fa3d1"
+  },
+  "scripts_sha256": {
+    "capture_updated_roundtrip_quanta.py": "bbccff4b5d243e6b887f3243da8a31697bd00f2f4ab496bd747ca6dc3a3a9643",
+    "inspect_updated_roundtrip_core.php": "81c7575b00cee597bce07cabf41c793cdd8935dc178876b253896cf8f5b91068"
+  },
+  "next_required": "Resolve incremental source intake across differing source/Core weeks with preserved approved and reserved history; preview must identify the actual destination conflict. Continue the same saved source through reviewed approval, input reservation and held provider result.",
+  "full_roundtrip_passed": false,
+  "production_changed": false,
+  "arabella_changed": false,
+  "financial_execution": false
+}

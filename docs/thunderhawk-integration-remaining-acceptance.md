@@ -2,6 +2,14 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 14 updated cross-system source — captured; Core period conflict confirmed
+
+Read-only revalidation matched all 463 current Core runtime pins. A fresh 75-minute source for existing P-387 / PL-902 passed 18 Quanta native capture, replay, conflict and independent-approval checks. Existing provider records, runtime, configuration and the prior held $100 PurePayroll draft were preserved; both temporary sessions were revoked.
+
+The subsequent five-request Core diagnostic found a real intake mismatch: Quanta's November 14–20 Saturday week lands in Core's already-approved November 9–15 Monday week. Preview reported ready; import returned 409. Twenty-two checks verified the refusal, company isolation, zero partial import, preservation of every original Core row and retirement of the temporary actor. The 75-minute source remains approved in Quanta and unimported in Core. [Detailed evidence and required continuation](thunderhawk-incremental-time-period-alignment.md).
+
+Next resolve the shared preview/commit destination check and reviewed supplemental-time/calendar semantics while preserving prior approvals, accounting intent and source reservations. Continue the same saved source through independent Core review and the held provider result. Do not recapture it, bypass date limits, reopen consumed history or fabricate missing historical rates. This is a confirmed implementation gap, not a completed round trip or an external-access blocker. The other full integration requirements remain open; production and Arabella are unchanged.
+
 ## November 14 canonical payroll template exports — installed and accepted
 
 Source `6773f17f` replaces the obsolete payroll-template query with canonical, company-owned employee and calculation records. It retains linked person/employee numbers, exact amounts, separate overtime/double-time categories, original source rates and receipts, and the calculation's review identity. Changed calculations, foreign employees, incomplete source-hours mappings and unsupported bank/provider-ID projections fail before download bytes or a success audit. Historical exports are labelled unverified and still reconcile their employee count and totals. The new Payroll calculation audit preset preserves the complete evidence. [Behavior and limits](thunderhawk-payroll-template-exports.md).
