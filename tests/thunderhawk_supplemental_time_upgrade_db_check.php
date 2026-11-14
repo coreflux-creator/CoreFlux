@@ -33,7 +33,9 @@ try{
     $check($proof['preserved_rows']===array_sum(array_column($before['tables'],'rows'))&&$proof['added_columns']===3&&$proof['applied_migrations']===1,'full migration retains every original value and records one applied migration');
     $check($blocked('UPDATE staffing_timesheets SET total_hours=99 WHERE tenant_id=2002')&&$blocked('UPDATE pilot_original_rows SET payload="writer" WHERE id=1'),'native table locks remain effective after DDL and commit');
     $check($refuses(fn()=>thunderhawkSupplementApply($pdo,$plan,$before,$record),'already started'),'an ambiguous repeat cannot replay the original installation');
-    $pdo->exec('UPDATE staffing_timesheets SET supplement_review_hash=REPEAT("a",64) WHERE tenant_id=2002');
+    // Isolate new-column use from the separate original-row guard: this table
+    // otherwise changes its original updated_at automatically on any update.
+    $pdo->exec('UPDATE staffing_timesheets SET supplement_review_hash=REPEAT("a",64),updated_at=updated_at WHERE tenant_id=2002');
     $check($refuses(fn()=>thunderhawkSupplementRecover($pdo,$before,$plan),'business use'),'recovery refuses new supplemental business evidence');$pdo->exec('ROLLBACK');
     $pdo->exec('UPDATE staffing_timesheets SET total_hours=3 WHERE tenant_id=2002');
     $check($refuses(fn()=>thunderhawkSupplementRecover($pdo,$before,$plan),'Original business values changed'),'recovery never overwrites a changed original approval');$pdo->exec('ROLLBACK');
