@@ -41,7 +41,7 @@ $retained=$read('time_entries',$decisionIds[0]);
 $expect($status===200&&$review['entry_count']===2&&count($review['entries'])===3&&!$review['entries'][0]['will_change'],'Weekly rejection review displays the approved sibling without selecting it for rejection');
 $expect($commit('weeks',[$decisionSheet],'reject',$review['revision'],'')[0]===422&&$snapshot($tables)===$before,'Rejection requires a reason before any decision write');
 $expect($commit('weeks',[$decisionSheet],'reject',$review['revision'],str_repeat('x',501))[0]===422&&$snapshot($tables)===$before,'Overlong rejection reasons cannot partially change the week');
-$extra=$insert('time_entries',['tenant_id'=>$workspace,'person_id'=>$person,'placement_id'=>$placement,'period_id'=>$decisionPeriod,'timesheet_id'=>$decisionSheet,'work_date'=>'2026-10-15','hours'=>1,'status'=>'pending_review','created_by_user_id'=>$creator]);$before=$snapshot($tables);
+$extra=$insert('time_entries',['tenant_id'=>$workspace,'person_id'=>$person,'placement_id'=>$placement,'period_id'=>$decisionPeriod,'timesheet_id'=>$decisionSheet,'work_date'=>'2026-10-15','hours'=>1,'hour_type'=>'regular','category'=>'regular_billable','status'=>'pending_review','created_by_user_id'=>$creator]);$before=$snapshot($tables);
 $expect($commit('weeks',[$decisionSheet],'reject',$review['revision'])[0]===409&&$snapshot($tables)===$before,'A newly added weekly entry invalidates the previously displayed set');
 $pdo->prepare('DELETE FROM time_entries WHERE id=?')->execute([$extra]);
 [$status,$review]=$reviewRequest('weeks',[$decisionSheet],'reject');$before=$snapshot($tables);
