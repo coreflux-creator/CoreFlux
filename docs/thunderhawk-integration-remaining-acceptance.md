@@ -2,6 +2,12 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 14 hosted pilot attempt — restored before schema changes
+
+Installer `25ba5241` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43575413820), including 35 populated backup/upgrade/recovery checks. Hosted preflight passed, but the web-worker check stopped installation before backup or schema work. Its terminal operation `683a44a17a69b7641615f9c69cfb864e` restored web access and the scheduler and removed the diagnostic. Independent verification retained every application preimage, private configuration and migration ledger, with 378 tables and 35,304 rows. Production and Arabella are unchanged. [Recorded evidence](../deploy/thunderhawk-time-payroll-installation-attempt-20261114.json).
+
+The host uses different deployment and web-worker accounts and disables web POSIX inspection. The corrected inert channel at `6e2ac9e0` reads no private files, verifies the native worker externally and restricts cache refresh to fixed candidate/recovery hashes. Its full [CI run](https://github.com/coreflux-creator/CoreFlux/actions/runs/43576895462) includes a new native test reproducing those hosting restrictions. That correction, a new guarded installation, hosted signed-in time/payroll approval acceptance and the full integration round trip remain outstanding. The existing terminal attempt must not be replayed. The full goal remains active and incomplete.
+
 ## November 14 populated pilot upgrade — prepared, not installed
 
 Upgrade tools `8f943974` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43572151001), including **29 populated upgrade database checks**, 32 payroll-review checks, 22 source-earnings checks, 65 identity checks, 944 independent-connection checks, 953 native-session checks and 917 native HTTP checks. Fixture cleanup passed. [Preparation and limits](thunderhawk-time-payroll-upgrade.md). [Pinned evidence](../deploy/thunderhawk-time-payroll-upgrade-preparation-20261114.json).

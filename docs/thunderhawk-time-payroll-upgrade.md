@@ -1,5 +1,41 @@
 # Combined Thunderhawk pilot upgrade
 
+## Hosted attempt restored before schema work — November 14, 2026
+
+The exact installer at `25ba5241` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43575413820),
+including **35 populated upgrade checks**, native backup and recovery after a partial
+migration, 32 payroll-review checks and 22 approved-earnings checks. Its hosted
+preflight passed for 149 application files, 309 retained dependencies and seven
+migrations. This corrected an earlier preflight-only variable collision with the
+application's database bootstrap; that earlier attempt never started maintenance.
+
+The installation then stopped at the web-worker drain check, before backup or
+schema changes. Its pre-schema recovery restored the original web routing and
+scheduler and removed its diagnostic. Independent readback at 08:32:57 UTC
+confirmed every application preimage, the private configuration and migration
+ledger, with the same **378 tables and 35,304 rows**. The original operation is
+terminal, `aborted_before_schema`; it must not be replayed.
+[Recorded attempt](../deploy/thunderhawk-time-payroll-installation-attempt-20261114.json).
+
+Native process inspection identified deployment UID 1003 and FPM UID 1009.
+A short-lived, authenticated diagnostic also established that the web runtime
+disables `posix_geteuid`, while native FPM status and targeted OPcache controls
+are available. Both temporary inspection files were removed. Thus the earlier
+same-owner diagnostic cannot run on this host; changing backup permissions is
+not required or appropriate.
+
+Correction `6e2ac9e0` supplies an inert diagnostic containing only fixed candidate
+and recovery file hashes and the pinned diagnostic functions. It reads no private
+files, bootstraps no application and exposes no database credential. Its caller
+independently verifies the reported native process belongs to UID 1009 and the
+expected pilot pool. A bounded status observation permits existing requests to
+finish, while cache actions are never automatically replayed. A separate native
+Apache/FPM fixture reproduces distinct owners, an unreadable private directory
+and disabled POSIX access; it checks authentication, expiry, exact holds, candidate
+and recovery refresh, and preservation of unrelated cached PHP. Full correction
+[CI](https://github.com/coreflux-creator/CoreFlux/actions/runs/43576895462) and a new
+hosted attempt remain required. This checkpoint is not an installation receipt.
+
 ## Prepared application release — November 14, 2026
 
 The application package is bound to `846e8620`, which passed all eleven
@@ -46,13 +82,14 @@ the operation as if it had never started.
 
 ## Installation still required
 
-No application files, schema, private settings or provider records have changed
-on the hosted pilot. The prepared package is not an installation receipt.
+No application release, schema, private settings or provider records have changed
+on the hosted pilot. The temporary maintenance attempt above was restored.
+The prepared package is not an installation receipt.
 A second read-only host inspection found owner-preserving write access to the
 pilot web files, native backup/restore tools, no database events and no other
 active database connection at that instant. All nine observed master scheduler
-lines reference production; none directly names this pilot. No maintenance hold
-or backup was started.
+lines reference production; none directly names this pilot. The later maintenance
+attempt is recorded above; it did not reach the backup phase.
 
 The installation still needs its current maintenance and writer observations,
 retained file/database backups, a guarded installation entry point, cache refresh,
