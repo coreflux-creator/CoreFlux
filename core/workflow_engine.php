@@ -223,12 +223,25 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     if (!$pdo) throw new \RuntimeException('No DB');
 
     $ownsTx = cf_tx_begin($pdo);
+    if (!$ownsTx) $pdo->exec('SAVEPOINT workflow_action');
     try {
 
+    // Payroll and recomputation take the run lock before the workflow lock.
+    $payrollRun=null;
+    $subject=_workflowFetchRow($tenantId,$instanceId);
+    if (($subject['subject_type']??'')==='payroll_run') {
+        require_once __DIR__.'/../modules/payroll/lib/calculation_review.php';
+        $payrollRun=payrollReviewLockSubject($tenantId,(int)$subject['subject_id']);
+    }
     $instance = _workflowFetchRow($tenantId, $instanceId, true);
     if (!$instance) throw new \RuntimeException("Instance not found");
     if ($instance['status'] !== WORKFLOW_STATUS_PENDING) {
         throw new \RuntimeException("Instance already {$instance['status']}");
+    }
+    if ($payrollRun!==null || $instance['subject_type']==='payroll_run') {
+        if ($payrollRun===null) throw new RuntimeException('Payroll review changed. Refresh before deciding.',409);
+        payrollCalculationAssertWorkflow($payrollRun,$instance);
+        payrollReviewAssertActor($tenantId,$payrollRun,$userId,$action,$via);
     }
     if ($instance['subject_type'] === 'billing_invoice'
         && !in_array($action, ['approve', 'reject', 'comment'], true)) {
@@ -320,7 +333,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
               WHERE tenant_id = :tenant_id AND id = :id"
         )->execute(['tenant_id' => $tenantId, 'id' => $instanceId]);
         $result = _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
-        cf_tx_commit($pdo, $ownsTx);
+        _workflowActCommit($pdo, $ownsTx, $result);
 
         $escalationUserId = (int) ($currentStepDef['escalate_to_user_id'] ?? 0);
         if ($escalationUserId > 0) {
@@ -403,7 +416,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
                          $action, $userId, WORKFLOW_STATUS_PENDING, $comment);
 
     $result = _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
-    cf_tx_commit($pdo, $ownsTx);
+    _workflowActCommit($pdo, $ownsTx, $result);
     try {
         _workflowPushApprovers($tenantId, $instanceId,
             (string) $instance['subject_type'], (int) $instance['subject_id'],
@@ -414,14 +427,18 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     }
     return $result;
     } catch (\Throwable $e) {
-        cf_tx_rollback($pdo, $ownsTx);
+        if ($pdo->inTransaction()) {
+            if ($ownsTx) $pdo->rollBack();
+            else {$pdo->exec('ROLLBACK TO SAVEPOINT workflow_action');$pdo->exec('RELEASE SAVEPOINT workflow_action');}
+        }
         throw $e;
     }
 }
 
 /** @internal */
 function _workflowActCommit(\PDO $pdo, bool $ownsTx, array $result): array {
-    cf_tx_commit($pdo, $ownsTx);
+    if ($ownsTx) cf_tx_commit($pdo, true);
+    else $pdo->exec('RELEASE SAVEPOINT workflow_action');
     return $result;
 }
 

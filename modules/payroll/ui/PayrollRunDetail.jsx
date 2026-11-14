@@ -53,7 +53,8 @@ export default function PayrollRunDetail() {
   const approve = async () => {
     setBusy('approve'); setError(null); setWarning(null); setNotice(null);
     try {
-      const result = await api.post('/api/v1/payroll/runs', { run_id: parseInt(runId, 10), action: 'approve' });
+      const result = await api.post('/api/v1/payroll/runs', { run_id: parseInt(runId, 10), action: 'approve',
+        expected_computation_revision: data?.run?.computation_revision, expected_computation_sha256: data?.run?.computation_sha256 });
       await load();
       if (result.accounting_warning) {
         setWarning(`Run approved. Ledger posting still needs attention: ${result.accounting_warning}`);
@@ -118,6 +119,7 @@ export default function PayrollRunDetail() {
   if (!data?.run) return <p>Loading…</p>;
   const run = data.run;
   const lines = data.lines || [];
+  const hasCalculationReview = Number(run.computation_revision)>0 && /^[a-f0-9]{64}$/.test(run.computation_sha256 || '');
   const accounting = data.accounting || {};
   const preflightBlocksRun = preflightSummary
     && (!preflightSummary.ready_to_run || Number(preflightSummary.total_w2_employees || 0) === 0);
@@ -129,6 +131,7 @@ export default function PayrollRunDetail() {
       <header className="payroll-run-detail__header">
         <div>
           <h2>Payroll run #{run.id}</h2>
+          {Number(run.computation_revision)>0 && <p className="muted">Calculation version {run.computation_revision}</p>}
           <p className="muted">
             {run.cycle_name || run.schedule_name || 'Payroll'} · Period {run.period_start} → {run.period_end} · Pay date {run.pay_date} ·{' '}
             <span className={`badge badge--${run.status}`}>{statusLabel(run.status)}</span>
@@ -156,7 +159,8 @@ export default function PayrollRunDetail() {
               </button>
               <button
                 className="btn btn--primary"
-                onClick={approve} disabled={busy === 'approve' || lines.length === 0}
+                onClick={approve} disabled={busy === 'approve' || lines.length === 0 || !hasCalculationReview}
+                title={!hasCalculationReview ? 'Recompute payroll to prepare a review of the current calculation.' : undefined}
                 data-testid="payroll-run-approve"
               >
                 Approve run

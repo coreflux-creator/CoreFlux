@@ -43,3 +43,23 @@ test('compute submits the revision actually shown and reloads the new one',async
     assert.equal(calls.length,2);assert.equal(calls[0][1].expected_computation_revision,4);assert.equal(calls[1][1].expected_computation_revision,5);
   }finally{act(()=>tree.unmount());}
 });
+test('approval submits the calculation identity shown to the reviewer',async()=>{
+  const calls=[],hash='b'.repeat(64);
+  get=async path=>path.includes('runs?id=')?{run:{id:7,status:'computed',pay_period_id:8,computation_revision:6,computation_sha256:hash},lines:[{id:11,employee_id:12,legal_first_name:'Synthetic',legal_last_name:'Worker'}]}
+    :path.includes('/preflight?')?{summary:{ready_to_run:true,total_w2_employees:1},employees:[]}:{};
+  post=async(path,body)=>{calls.push([path,body]);return {status:'approved'};};
+  const tree=await open(Run);try{
+    assert.match(text(tree.root),/Calculation version 6/);
+    await act(async()=>tree.root.findByProps({'data-testid':'payroll-run-approve'}).props.onClick());
+    assert.deepEqual(calls[0][1],{run_id:7,action:'approve',expected_computation_revision:6,expected_computation_sha256:hash});
+  }finally{act(()=>tree.unmount());}
+});
+test('an older unsealed calculation offers recompute before approval',async()=>{
+  get=async path=>path.includes('runs?id=')?{run:{id:7,status:'computed',pay_period_id:8,computation_revision:0},lines:[{id:11}]}
+    :path.includes('/preflight?')?{summary:{ready_to_run:true,total_w2_employees:1},employees:[]}:{};
+  const tree=await open(Run);try{
+    const approve=tree.root.findByProps({'data-testid':'payroll-run-approve'});
+    assert.equal(approve.props.disabled,true);assert.match(approve.props.title,/Recompute/);
+    assert.equal(tree.root.findByProps({'data-testid':'payroll-run-recompute'}).props.disabled,false);
+  }finally{act(()=>tree.unmount());}
+});

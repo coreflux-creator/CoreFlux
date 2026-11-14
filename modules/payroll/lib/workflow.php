@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/domain_people_graph.php';
 require_once __DIR__ . '/../../../core/workflow_engine.php';
 require_once __DIR__ . '/payroll.php';
+require_once __DIR__ . '/calculation_review.php';
 
 function payrollRunWorkflowRow(int $runId): ?array {
     return scopedFind(
@@ -52,6 +53,8 @@ function payrollRunWorkflowContext(array $run, ?int $actorUserId = null): array 
         'object_id' => (string) $runId,
         'approval_resource' => 'payroll.run',
         'run_id' => $runId,
+        'computation_revision' => (int)($run['computation_revision']??0),
+        'computation_sha256' => $run['computation_sha256']??null,
         'pay_period_id' => isset($run['pay_period_id']) ? (int) $run['pay_period_id'] : null,
         'schedule_id' => isset($run['schedule_id']) ? (int) $run['schedule_id'] : null,
         'period_start' => $run['period_start'] ?? null,
@@ -97,12 +100,15 @@ function payrollRunWorkflowPayload(array $run, ?int $actorUserId = null): array 
     $blocked = payrollRunWorkflowSodBlockedUserIds($run, $actorUserId);
     return [
         'title' => 'Payroll run needs approval',
+        'computation_revision' => (int)($run['computation_revision']??0),
+        'computation_sha256' => $run['computation_sha256']??null,
         'body' => sprintf(
-            'Payroll run #%d for pay date %s, net $%s across %d employees.',
+            'Payroll run #%d for pay date %s, net $%s across %d employees. Calculation version %d.',
             $runId,
             (string) ($run['pay_date'] ?? ''),
             number_format(((int) ($run['net_total_cents'] ?? 0)) / 100, 2),
-            (int) ($run['employee_count'] ?? 0)
+            (int) ($run['employee_count'] ?? 0),
+            (int) ($run['computation_revision'] ?? 0)
         ),
         'deep_link' => '/modules/payroll/runs/' . $runId,
         'object_module' => 'payroll',
@@ -122,10 +128,10 @@ function payrollRunWorkflowPayload(array $run, ?int $actorUserId = null): array 
 }
 
 function payrollRunWorkflowStart(int $tenantId, int $runId, ?int $actorUserId = null): ?int {
-    $run = payrollRunWorkflowRow($runId);
-    if (!$run) return null;
-
+    $run=[];
     try {
+        if (!getDB()->inTransaction()) throw new LogicException('Payroll review creation requires the computation transaction.');
+        $run=payrollReviewLockSubject($tenantId,$runId);
         $defKey = 'payroll_run_approval';
         workflowEnsureDefinition($tenantId, $defKey, 'payroll_run', 'Payroll run approval', payrollRunWorkflowSteps($runId));
         $payload = payrollRunWorkflowPayload($run, $actorUserId);
@@ -193,39 +199,32 @@ function payrollRunWorkflowCancelPending(int $tenantId, int $runId, ?int $actorU
     return count($ids);
 }
 
-function payrollRunWorkflowAct(int $tenantId, array $run, int $userId, string $action, ?string $note = null): array {
+function payrollRunWorkflowAct(int $tenantId, array $run, int $userId, string $action, ?string $note = null, ?int $expectedRevision = null, ?string $expectedHash = null): array {
     $runId = (int) ($run['id'] ?? 0);
     if ($runId <= 0) throw new \InvalidArgumentException('payroll run id required');
+    $pdo=getDB();$owns=cf_tx_begin($pdo);
+    if (!$owns) $pdo->exec('SAVEPOINT payroll_review_action');
     try {
-        $pdo = getDB();
         $instanceId = (int) ($run['workflow_instance_id'] ?? 0);
-        if ($instanceId > 0) {
-            $check = $pdo->prepare(
-                "SELECT id FROM workflow_instances WHERE tenant_id = :t AND id = :id AND status = 'pending'"
-            );
-            $check->execute(['t' => $tenantId, 'id' => $instanceId]);
-            $instanceId = (int) ($check->fetchColumn() ?: 0);
+        $current=payrollReviewLockSubject($tenantId,$runId);
+        if ($expectedRevision===null || $expectedHash===null || $expectedRevision!==(int)$current['computation_revision']
+            || !hash_equals((string)$current['computation_sha256'],$expectedHash)
+            || $instanceId<=0 || $instanceId!==(int)$current['workflow_instance_id']) {
+            throw new RuntimeException('Payroll changed since this review was opened. Refresh and review the current calculation.',409);
         }
-        if ($instanceId <= 0) {
-            $row = $pdo->prepare(
-                "SELECT id FROM workflow_instances
-                  WHERE tenant_id = :t AND subject_type = 'payroll_run' AND subject_id = :s AND status = 'pending'
-                  ORDER BY id DESC LIMIT 1"
-            );
-            $row->execute(['t' => $tenantId, 's' => $runId]);
-            $instanceId = (int) ($row->fetchColumn() ?: 0);
-        }
-        if ($instanceId <= 0) $instanceId = (int) (payrollRunWorkflowStart($tenantId, $runId, null) ?? 0);
-        if ($instanceId <= 0) throw new \RuntimeException('Could not start payroll approval workflow');
-
         $instance = workflowAct($tenantId, $instanceId, $userId, $action, $note ?: null, 'app');
-        $updated = payrollRunWorkflowRow($runId) ?? $run;
+        $updated = payrollCalculationRun($tenantId,$runId,true);
         $approved = (string) ($updated['status'] ?? '') === 'approved';
         if (($instance['status'] ?? null) === WORKFLOW_STATUS_APPROVED && !$approved) {
             throw new \RuntimeException('Workflow approved but payroll run sync did not apply');
         }
+        if ($owns) $pdo->commit();else $pdo->exec('RELEASE SAVEPOINT payroll_review_action');
         return ['applied' => true, 'approved' => $approved, 'instance' => $instance, 'run' => $updated];
     } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) {
+            if ($owns) $pdo->rollBack();
+            else {$pdo->exec('ROLLBACK TO SAVEPOINT payroll_review_action');$pdo->exec('RELEASE SAVEPOINT payroll_review_action');}
+        }
         payrollAudit('payroll.run.approval_blocked', [
             'run_id' => $runId,
             'action' => $action,

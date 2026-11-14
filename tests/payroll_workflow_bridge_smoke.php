@@ -66,7 +66,7 @@ $checks = [
         && str_contains($runDetailUi, '/modules/payroll/settings'),
     'computed approval is not blocked by draft preflight' =>
         str_contains($runDetailUi, "run.status === 'draft' && run.pay_period_id")
-        && str_contains($runDetailUi, "onClick={approve} disabled={busy === 'approve' || lines.length === 0}"),
+        && str_contains($runDetailUi, "onClick={approve} disabled={busy === 'approve' || lines.length === 0 || !hasCalculationReview}"),
     'workflow sync updates payroll-owned records' => str_contains($sync, "UPDATE payroll_runs") && str_contains($sync, "UPDATE payroll_pay_periods"),
     'schema migration adds workflow evidence' => str_contains($migration, 'workflow_instance_id') && str_contains($migration, 'computed_by_user_id'),
     'cancelled payroll reviews release the unique workflow slot' =>

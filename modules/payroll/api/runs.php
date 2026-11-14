@@ -300,7 +300,12 @@ switch (api_method()) {
             _payrollRequireStatus($run, ['computed'], 'Approve');
             _payrollDenyBuildApproveSameActor($runId, $user);
             try {
-                $workflow = payrollRunWorkflowAct(currentTenantId(), $run, (int) ($user['id'] ?? 0), 'approve');
+                $revision=$body['expected_computation_revision']??null;
+                $hash=$body['expected_computation_sha256']??null;
+                if ($revision===null || !ctype_digit((string)$revision) || !is_string($hash) || !preg_match('/^[a-f0-9]{64}$/D',$hash)) {
+                    throw new RuntimeException('Refresh payroll and review the current calculation before approving.',409);
+                }
+                $workflow = payrollRunWorkflowAct(currentTenantId(), $run, (int) ($user['id'] ?? 0), 'approve',null,(int)$revision,$hash);
             } catch (\Throwable $e) {
                 $msg = $e->getMessage();
                 $code = str_contains($msg, 'Separation of duties') || str_contains($msg, 'not an approver') ? 403 : 409;

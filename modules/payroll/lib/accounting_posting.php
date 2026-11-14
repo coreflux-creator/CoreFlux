@@ -765,5 +765,9 @@ function payrollAccountingLoadRun(int $tenantId, int $runId): array
     $stmt->execute(['t' => $tenantId, 'id' => $runId]);
     $run = $stmt->fetch(\PDO::FETCH_ASSOC);
     if (!$run) throw new \RuntimeException('Payroll run not found');
+    if (in_array($run['status'],['approved','paid'],true)) {
+        require_once __DIR__.'/calculation_review.php';
+        payrollCalculationAssertApproved($run);
+    }
     return $run;
 }

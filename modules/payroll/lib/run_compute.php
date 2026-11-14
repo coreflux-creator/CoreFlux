@@ -4,13 +4,14 @@ declare(strict_types=1);
 require_once __DIR__.'/payroll.php';
 require_once __DIR__.'/compute.php';
 require_once __DIR__.'/source_earnings.php';
+require_once __DIR__.'/calculation_review.php';
 require_once __DIR__.'/workflow.php';
 require_once __DIR__.'/artifacts.php';
 require_once __DIR__.'/../../../core/tx_helpers.php';
 
 function payrollSourceEarningsRequireSchema(PDO $pdo): void
 {
-    $required=['payroll_runs'=>['computation_revision'],
+    $required=['payroll_runs'=>['computation_revision','computation_sha256','approved_computation_revision','approved_computation_sha256'],
         'payroll_line_items'=>['earnings_basis','source_time_json','source_time_sha256','hours_regular','hours_overtime'],
         'payroll_earnings'=>['source_rate','source_multiplier','source_entry_ids_json','source_snapshot_hash','hours']];
     $q=$pdo->prepare('SELECT COLUMN_NAME,DATA_TYPE,NUMERIC_SCALE FROM information_schema.columns WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?');
@@ -61,7 +62,8 @@ function payrollComputeRun(int $runId, array $hoursOverrides = [], ?int $actorUs
     );
     if (!$run) throw new RuntimeException('Run not found');
     if (!in_array($run['status'],['draft','computed'],true) || !empty($run['journal_entry_id'])
-        || !empty($run['cash_journal_entry_id']) || !empty($run['approved_at']) || !empty($run['paid_at'])) {
+        || !empty($run['cash_journal_entry_id']) || !empty($run['approved_at']) || !empty($run['paid_at'])
+        || !empty($run['approved_computation_revision']) || !empty($run['approved_computation_sha256'])) {
         throw new RuntimeException('Only an unapproved, unposted payroll run can be computed.',409);
     }
     if ($expectedRevision===null || $expectedRevision!==(int)$run['computation_revision']) {
@@ -177,6 +179,8 @@ function payrollComputeRun(int $runId, array $hoursOverrides = [], ?int $actorUs
             'computed_by_user_id'    => $actorUserId !== null && $actorUserId > 0 ? $actorUserId : null,
         ]);
 
+        $calculation=payrollCalculationRun((int)$tenant,$runId,true);
+        scopedUpdate('payroll_runs',$runId,['computation_sha256'=>payrollCalculationFingerprint($calculation,true)]);
         payrollRunSyncArtifact($tenant, $runId, $actorUserId);
 
         if ($owns) $pdo->commit(); else $pdo->exec('RELEASE SAVEPOINT payroll_compute_run');

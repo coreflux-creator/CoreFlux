@@ -35,6 +35,10 @@ if ($method === 'POST' && $action === 'act') {
     if (!in_array($body['action'], $allowed, true)) api_error('invalid action', 422, ['allowed' => $allowed]);
     $instance = workflowGetInstance($tenantId, $instanceId);
     if (!$instance) api_error('Instance not found', 404);
+    if (($instance['subject_type']??'')==='payroll_run') {
+        require_once __DIR__.'/../core/RBAC.php';
+        rbac_legacy_require($user,'payroll.run.approve');
+    }
     if (($instance['subject_type'] ?? '') === 'billing_invoice') {
         if (!in_array($body['action'], ['approve', 'reject', 'comment'], true)) {
             api_error('Billing invoice review requires an approve or reject decision', 422);
@@ -57,10 +61,10 @@ if ($method === 'POST' && $action === 'act') {
             isset($body['delegated_to_user_id']) ? (int) $body['delegated_to_user_id'] : null
         );
     } catch (\InvalidArgumentException $e) {
-        if (($instance['subject_type'] ?? '') !== 'billing_invoice') throw $e;
+        if (!in_array($instance['subject_type']??'',['billing_invoice','payroll_run'],true)) throw $e;
         api_error($e->getMessage(), 422);
     } catch (\RuntimeException $e) {
-        if (($instance['subject_type'] ?? '') !== 'billing_invoice') throw $e;
+        if (!in_array($instance['subject_type']??'',['billing_invoice','payroll_run'],true)) throw $e;
         $message = $e->getMessage();
         $denied = str_contains($message, 'Separation of duties')
             || str_contains($message, 'not an approver')
