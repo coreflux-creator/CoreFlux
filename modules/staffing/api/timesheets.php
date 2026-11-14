@@ -243,7 +243,7 @@ if ($method === 'GET' && $action === 'list') {
 
     $rows = staffingTimeQuery(
         "SELECT t.id, t.artifact_id, t.person_id, t.worker_user_id,
-                t.period_start, t.period_end, t.status,
+                t.period_start, t.period_end, t.status, ".staffingTimesheetSupplementFields('t').",
                 t.origin_source, t.origin_system, t.created_by_user_id,
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
                 p.first_name, p.last_name, p.email_primary,
@@ -351,7 +351,7 @@ if ($method === 'GET' && $action === 'detail') {
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $header = staffingTimeFind(
-        'SELECT t.id, t.artifact_id, t.person_id, t.period_start, t.period_end, t.status,
+        'SELECT t.id, t.artifact_id, t.person_id, t.period_start, t.period_end, t.status, '.staffingTimesheetSupplementFields('t').',
                 t.origin_source, t.origin_system, t.created_by_user_id,
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
                 t.created_at, t.updated_at,
@@ -469,7 +469,7 @@ if ($method === 'GET' && $action === 'list_for_person') {
     staffingApiRequirePersonRead($ctx, $personId);
     $limit = max(1, min(200, (int) ($_GET['limit'] ?? 50)));
     $rows = staffingTimeQuery(
-        "SELECT t.id, t.artifact_id, t.person_id, t.period_start, t.period_end, t.status,
+        "SELECT t.id, t.artifact_id, t.person_id, t.period_start, t.period_end, t.status, ".staffingTimesheetSupplementFields('t').",
                 t.origin_source, t.origin_system, t.created_by_user_id,
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
                 p.first_name, p.last_name, p.email_primary

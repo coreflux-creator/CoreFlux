@@ -9,6 +9,7 @@ require_once __DIR__ . '/time_binding.php';
 require_once __DIR__ . '/../sub_tenants.php';
 require_once __DIR__ . '/../../modules/time/lib/time.php';
 require_once __DIR__ . '/../../modules/staffing/lib/timesheets.php';
+require_once __DIR__.'/time_destination.php';
 
 function quantaValue(array $row, array $keys): mixed
 {
@@ -429,7 +430,7 @@ function quantaPreviewRows(int $tenantId, array $rawEntries, array $worksites, s
     }
     $imports = quantaImportLookup($tenantId, $ids);
     $rows = [];
-    $counts = ['ready' => 0, 'update' => 0, 'imported' => 0, 'conflict' => 0, 'verify_source' => 0];
+    $counts = ['ready' => 0, 'update' => 0, 'supplement'=>0, 'imported' => 0, 'conflict' => 0, 'verify_source' => 0];
     foreach ($rawEntries as $raw) {
         $id = trim((string) quantaValue($raw, ['id', 'entry_id']));
         $row = ['id' => $id, 'status' => 'conflict'];
@@ -443,8 +444,17 @@ function quantaPreviewRows(int $tenantId, array $rawEntries, array $worksites, s
             $row['person_number'] = $route['person_number'];
             $row['person_name'] = $route['person_name'];
             [$row['status'], $row['message']] = quantaEntryDecision($entry, $route, $imports, $access['context']['workspace']['id']);
+            if (in_array($row['status'],['ready','update'],true)) {
+                $destination=quantaTimeDestination($tenantId,$entry,$route,$imports,$access);
+                $row['destination']=$destination['view'];
+                if ($destination['mode']==='supplement') {
+                    $row['status']='supplement';$row['destination_review_hash']=$destination['review_hash'];
+                    $row['message']='Additional time for approved week '.$destination['period_start'].'. Import into a separate supplemental timesheet for independent review; the original approval remains unchanged.';
+                }
+            }
             if ($row['status'] === 'verify_source') $row['source_review_hash'] = quantaTimeSourceReviewHash($access, $entry, $route, $imports);
         } catch (Throwable $e) {
+            $row['status']='conflict';
             $row['message'] = $e->getMessage();
         }
         $counts[$row['status']]++;
@@ -465,7 +475,7 @@ function quantaWorksitesById(array $sites): array
 }
 
 /** Import only selected source IDs, refetched by the caller after preview. Atomic on conflict. */
-function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, array $worksites, string $requestedStatus, array $selectedIds, array $access, array $sourceReviews = []): array
+function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, array $worksites, string $requestedStatus, array $selectedIds, array $access, array $sourceReviews = [], array $destinationReviews = [], bool $confirmSupplements = false): array
 {
     $selectedIds = array_values(array_unique(array_map('strval', $selectedIds)));
     if (!$selectedIds || count($selectedIds) > 200) throw new InvalidArgumentException('Select between 1 and 200 Quanta entries');
@@ -489,6 +499,24 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
         $routes = quantaRoutes($tenantId);
         $workerPeople = quantaWorkerPersonMap(quantaWorkerLinks($tenantId, true));
         $imports = quantaImportLookup($tenantId, $selectedIds, true);
+        // Validate the complete selection against the displayed destinations before
+        // creating any header. One batch may contain several entries for one parent.
+        $destinations=[];$supplementGroups=[];$supplements=[];
+        foreach ($selectedIds as $id) {
+            $entry=quantaNormalizeEntry($source[$id],$worksites,$requestedStatus);
+            $route=quantaRouteFor($routes,$entry,$workerPeople,$access);
+            [$decision,$message]=quantaEntryDecision($entry,$route,$imports,$access['context']['workspace']['id']);
+            if ($decision==='conflict') throw new RuntimeException("Quanta entry {$id}: {$message}");
+            if (!in_array($decision,['ready','update'],true)) continue;
+            $destination=quantaTimeDestination($tenantId,$entry,$route,$imports,$access,true);
+            if ($destination['mode']==='supplement') {
+                if (!$confirmSupplements || !is_string($destinationReviews[$id]??null) || !hash_equals($destination['review_hash'],$destinationReviews[$id])) throw new RuntimeException('Review and confirm the current supplemental destination before importing additional time.',409);
+                $supplementGroups[(int)$destination['header']['id']][$id]=$destination['review_hash'];
+            } elseif (isset($destinationReviews[$id])) {
+                throw new RuntimeException('The selected destination changed. Preview the source again.',409);
+            }
+            $destinations[$id]=$destination;
+        }
         foreach ($selectedIds as $id) {
             $entry = quantaNormalizeEntry($source[$id], $worksites, $requestedStatus);
             $route = quantaRouteFor($routes, $entry, $workerPeople, $access);
@@ -499,12 +527,19 @@ function quantaImportSelected(int $tenantId, int $actorId, array $rawEntries, ar
                 continue;
             }
             if ($decision === 'imported') { $skipped++; continue; }
-            [$weekStart, $weekEnd] = timeWeekBounds($entry['work_date']);
-            $timesheet = staffingTimesheetUpsert((int) $route['person_id'], $weekStart, $weekEnd, [
-                'source' => 'quanta', 'source_system' => 'quanta', 'created_by_user_id' => $actorId,
+            $destination=$destinations[$id];$weekStart=$destination['period_start'];$weekEnd=$destination['period_end'];
+            if ($destination['mode']==='supplement') {
+                $parentId=(int)$destination['header']['id'];
+                if (!isset($supplements[$parentId])) {
+                    $reviews=$supplementGroups[$parentId];ksort($reviews,SORT_STRING);
+                    $supplements[$parentId]=staffingTimesheetCreateSupplement($tenantId,$actorId,$destination['header'],integrationDeliveryHash([$tenantId,$actorId,$parentId,$reviews]),$reviews);
+                }
+                $timesheet=$supplements[$parentId];
+            } else $timesheet=$destination['header']??staffingTimesheetUpsert((int)$route['person_id'],$weekStart,$weekEnd,[
+                'tenant_id'=>$tenantId,'source'=>'quanta','source_system'=>'quanta','created_by_user_id'=>$actorId,
             ]);
             if (in_array($timesheet['status'], ['approved', 'payroll_ready', 'billing_ready', 'locked'], true)) {
-                throw new RuntimeException("Week of {$weekStart} is already {$timesheet['status']}; reopen it before import");
+                throw new RuntimeException("Week of {$weekStart} is already {$timesheet['status']}; review its supplemental or correction workflow before import");
             }
             $periodId = timeOpenPeriodIdForDate($entry['work_date']);
             foreach ($entry['components'] as $component => $hours) {

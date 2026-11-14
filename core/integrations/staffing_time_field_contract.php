@@ -16,7 +16,7 @@ function staffingTimeFieldDefinitions(): array
             'placement_id' => ['Placement in the owning Core directory. External exchanges resolve its canonical placement reference; this SQL ID is not a provider assignment ID.', 'reference:placement'],
             'person_id' => ['Person in the owning Core directory. External exchanges resolve the canonical person reference; never match this SQL ID to a provider worker ID.', 'reference:person'],
             'period_id' => ['Core processing period containing the work date; separate from the worker weekly header and provider payroll run.', 'reference:time_period'],
-            'timesheet_id' => ['Core weekly header for this person. A source correction keeps or moves this link and reconciles every affected week.', 'reference:staffing_timesheet'],
+            'timesheet_id' => ['Core review header for this person and week, including a separately approved supplement when late source arrives. Corrections preserve the original review unit when the date stays in its week.', 'reference:staffing_timesheet'],
             'work_date' => ['Calendar date of work. Quanta may supply it directly or derive it from clock-in with explicit worksite timezone evidence.', 'date'],
             'external_id' => ['Connector-specific entry identity. Quanta initially hashes source entry/component; corrected replacements use a distinct reviewed revision identity.', 'source-reference'],
             'source_system' => ['Recorded origin system. A later Core review does not turn Quanta source time into manual time.', 'enum'],
@@ -76,6 +76,9 @@ function staffingTimeFieldDefinitions(): array
             'consumed_ref_id' => ['Record created by the Core consumer in consumed_by_module; not a provider transaction ID.', 'reference:consumer_record'],
         ],
         'staffing_timesheets' => [
+            'supplement_of_id' => ['Preserved primary Core week for supplemental time. Null on the primary; a supplement has its own entries, approval and accounting intent.', 'reference:staffing_timesheet|null'],
+            'supplement_sequence' => ['Zero for the primary week; increasing sequence for separate supplemental review units belonging to the same company, person and week.', 'integer'],
+            'supplement_review_hash' => ['Fingerprint of the confirmed source/destination reviews used to create this supplement. Never grants approval, payment or payroll execution.', 'sha256|null'],
             'artifact_id' => ['Core artifact projection identity for the weekly header; separate from source and provider timesheet IDs.', 'uuid'],
             'worker_user_id' => ['Optional linked Core worker login; the canonical person remains person_id and no login is granted by this reference.', 'reference:user|null'],
             'person_id' => ['Canonical Core person whose week is represented.', 'reference:person'],

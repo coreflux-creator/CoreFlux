@@ -20,6 +20,7 @@ require_once __DIR__ . '/dimensions.php';
 require_once __DIR__ . '/dimension_snapshot.php';
 require_once __DIR__.'/time_workspace.php';
 require_once __DIR__.'/native_time_edit.php';
+require_once __DIR__.'/supplemental_timesheets.php';
 
 const STAFFING_HOUR_TYPES = [
     'regular','overtime','doubletime','holiday','pto','sick','bereavement','unpaid','nonbillable',
@@ -188,6 +189,9 @@ function staffingTimesheetDecorate(array $header): array
     if (!empty($header['id'])) {
         $header['display_id'] = staffingTimesheetDisplayId((int) $header['id']);
     }
+    if (!empty($header['supplement_of_id'])) {
+        $header['supplement_of_display_id']=staffingTimesheetDisplayId((int)$header['supplement_of_id']);
+    }
     return $header;
 }
 
@@ -220,6 +224,10 @@ function staffingTimesheetArtifactPayload(array $header): array
         'approved_at'   => $header['approved_at'] ?? null,
         'origin_source' => (string) ($header['origin_source'] ?? 'manual_entry'),
         'origin_system' => $header['origin_system'] ?? null,
+        ...(!empty($header['supplement_of_id']) ? [
+            'supplement_of_id'=>(int)$header['supplement_of_id'],
+            'supplement_sequence'=>(int)$header['supplement_sequence'],
+        ] : []),
     ];
 }
 
@@ -446,7 +454,7 @@ function staffingTimesheetUpsert(
         $find = $pdo->prepare(
             'SELECT * FROM staffing_timesheets
               WHERE tenant_id = :tenant_id AND person_id = :person_id AND period_start = :period_start
-              LIMIT 1 FOR UPDATE'
+              ' . staffingTimesheetPrimaryClause() . ' LIMIT 1 FOR UPDATE'
         );
         $find->execute(['tenant_id' => $tenantId, 'person_id' => $personId, 'period_start' => $periodStart]);
         $header = $find->fetch(\PDO::FETCH_ASSOC) ?: null;
@@ -501,7 +509,7 @@ function staffingTimesheetUpsert(
 function staffingTimesheetFind(int $personId, string $periodStart): ?array
 {
     $row = staffingTimeFind(
-        'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND person_id = :pid AND period_start = :ps LIMIT 1',
+        'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND person_id = :pid AND period_start = :ps' . staffingTimesheetPrimaryClause() . ' LIMIT 1',
         ['pid' => $personId, 'ps' => $periodStart]
     );
     return $row ? staffingTimesheetDecorate($row) : null;
@@ -529,14 +537,19 @@ function staffingTimesheetWeek(int $personId, string $periodStart, string $perio
           WHERE te.tenant_id = :tenant_id
             AND te.person_id = :pid
             AND te.work_date BETWEEN :ps AND :pe
+            AND te.timesheet_id = :header_id
             AND te.status != 'superseded'
           ORDER BY te.placement_id, te.work_date, te.id",
-        ['pid' => $personId, 'ps' => $periodStart, 'pe' => $periodEnd, 'placements_tid' => staffingPlacementsTenantId()]
+        ['pid' => $personId, 'ps' => $periodStart, 'pe' => $periodEnd, 'placements_tid' => staffingPlacementsTenantId(), 'header_id'=>(int)($header['id']??0)]
     );
 
     return [
         'timesheet' => $header,
         'entries'   => $entries,
+        'supplements' => staffingTimesheetSupplementSchema() ? staffingTimeQuery(
+            'SELECT id,period_start,period_end,status,total_hours,supplement_of_id,supplement_sequence FROM staffing_timesheets WHERE tenant_id=:tenant_id AND person_id=:pid AND period_start=:ps AND supplement_sequence>0 ORDER BY supplement_sequence',
+            ['pid'=>$personId,'ps'=>$periodStart]
+        ) : [],
     ];
 }
 

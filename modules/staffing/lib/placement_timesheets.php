@@ -21,7 +21,7 @@ function staffingPlacementTimesheets(int $workspace, string $requested, ?int $ti
         $owner=companyRelationshipScope($pdo,$workspace,'placements')['owner'];
         $context=['workspace_id'=>$workspace,'placement_id'=>$placement['id'],'placement_number'=>$placement['placement_number'],
             'current_placement_id'=>$identity['current']['id'],'read_only'=>$identity['merged']];
-        $fields='t.id,t.artifact_id,t.person_id,t.period_start,t.period_end,t.status,t.origin_source,t.origin_system,
+        $fields=staffingTimesheetSupplementFields('t').',t.id,t.artifact_id,t.person_id,t.period_start,t.period_end,t.status,t.origin_source,t.origin_system,
             t.created_by_user_id,t.total_hours,t.submitted_at,t.approved_at,t.rejection_reason,p.first_name,p.last_name,p.email_primary';
         if ($timesheetId===null) {
             $where='t.tenant_id=:workspace AND t.person_id=:person';

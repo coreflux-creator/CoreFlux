@@ -157,8 +157,18 @@ function quantaTimeRevisionSnapshot(PDO $pdo, int $tenant, int $actor, string $i
     }
     if (!$active) throw new RuntimeException('No current Core source components are available.');
     [$start,$end]=timeWeekBounds($entry['work_date']);
-    $s=$pdo->prepare('SELECT * FROM staffing_timesheets WHERE tenant_id=? AND person_id=? AND period_start=? FOR UPDATE');
+    $s=$pdo->prepare('SELECT * FROM staffing_timesheets WHERE tenant_id=? AND person_id=? AND period_start=?'.staffingTimesheetPrimaryClause().' FOR UPDATE');
     $s->execute([$tenant,(int)$route['person_id'],$start]); $destination=$s->fetch(PDO::FETCH_ASSOC)?:null;
+    // A correction inside an existing supplement stays in that review unit.
+    // Never move its replacement rows into the preserved primary week.
+    $originalHeaders=array_keys($headers);$matching=[];
+    foreach ($originalHeaders as $headerId) {
+        $original=staffingTimesheetRow($tenant,(int)$headerId,true);
+        if ($original && (int)$original['person_id']===(int)$route['person_id'] && $original['period_start']===$start && $original['period_end']===$end) $matching[]=$original;
+    }
+    if (count($matching)>1) throw new RuntimeException('The source spans different review records. Reconcile its original timesheets first.');
+    if ($matching) $destination=$matching[0];
+    elseif ($destination && !in_array($destination['status'],['draft','submitted','rejected'],true)) throw new RuntimeException('The corrected date belongs to another approved week. Review a supplemental destination before moving this source.');
     if ($destination) $headers[(int)$destination['id']]=null;
     foreach ($headers as $headerId=>$_) {
         $s=$pdo->prepare('SELECT * FROM staffing_timesheets WHERE tenant_id=? AND id=? FOR UPDATE');
@@ -249,7 +259,7 @@ function quantaTimeRevisionApply(int $tenant,int $actor,string $id,string $hash,
         $entry=$p['entry']; $route=$p['route']; $before=$p['snapshot'];
         require_once __DIR__.'/../../modules/time/lib/accounting_handoff.php';
         $withdrawn=timeAccountingHandoffWithdraw($tenant,array_keys($before['headers']),$actor,$reason);
-        $sheet=staffingTimesheetUpsert((int)$route['person_id'],$p['week_start'],$p['week_end'],
+        $sheet=$before['destination']??staffingTimesheetUpsert((int)$route['person_id'],$p['week_start'],$p['week_end'],
             ['tenant_id'=>$tenant,'source'=>'quanta','source_system'=>'quanta','created_by_user_id'=>$actor]);
         $period=timeOpenPeriodIdForDate($entry['work_date']); $new=[];
         $imports=array_column($before['prior']['imports'],null,'component');

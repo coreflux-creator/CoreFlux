@@ -168,6 +168,7 @@ export default function TimesheetsList({ session }) {
               <tr key={r.id} data-testid={`timesheets-list-row-${r.id}`}>
                 <td>
                   <code data-testid={`timesheets-list-display-id-${r.id}`}>{r.display_id || `TS-${r.id}`}</code>
+                  {!!r.supplement_of_id && <div style={{ fontSize: 11 }}>Supplement {r.supplement_sequence} to <Link to={`/modules/staffing/timesheets/${r.supplement_of_id}`}>TS-{r.supplement_of_id}</Link></div>}
                   {Number(r.active_approval_token_count || 0) > 0 && (
                     <div style={{ fontSize: 10, color: '#0f766e', marginTop: 3 }}>Approval link active</div>
                   )}

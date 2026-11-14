@@ -411,6 +411,7 @@ export default function TimesheetDetail({ session }) {
               </span>
             )}
           </p>
+          {ts.supplement_of_id && <p style={{ fontSize: 13, marginTop: 8 }}>Supplement {ts.supplement_sequence} to <Link to={`/modules/staffing/timesheets/${ts.supplement_of_id}`}>TS-{ts.supplement_of_id}</Link>. These additional hours have their own approval and downstream records.</p>}
           {ts.artifact_id && (
             <p style={{ color: '#64748b', fontSize: 11, margin: '5px 0 0' }} data-testid="timesheet-detail-artifact-meta">
               <span title={`Artifact ${ts.artifact_id}`}>Tracked record</span>
@@ -426,7 +427,7 @@ export default function TimesheetDetail({ session }) {
           {/* Always offer the weekly-grid edit option, but ANCHORED on
               this timesheet's period + worker (fixes the bug where the
               link used to dump operators on their own current week). */}
-          {!isReadOnly && (
+          {!isReadOnly && !ts.supplement_of_id && (
             <Link to={`../week?period_start=${ts.period_start}&person_id=${ts.person_id}`}
                   className="btn btn--ghost"
                   data-testid="timesheet-detail-open-week">

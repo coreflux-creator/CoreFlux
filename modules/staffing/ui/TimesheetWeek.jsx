@@ -316,6 +316,7 @@ export default function TimesheetWeek({ session }) {
 
   return (
     <section className="people-directory" data-testid="staffing-timesheet-week">
+      {!!data?.supplements?.length && <div role="status" style={{ marginBottom: 14 }}>Additional time for this week is reviewed separately: {data.supplements.map((item, i) => <React.Fragment key={item.id}>{i > 0 ? ' · ' : ''}<Link to={`/modules/staffing/timesheets/${item.id}`}>TS-{item.id}</Link> ({Number(item.total_hours).toFixed(2)}h, {item.status})</React.Fragment>)}</div>}
       <header style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom: 'var(--cf-space-4)', flexWrap:'wrap', gap:'var(--cf-space-3)' }}>
         <div>
           <h2 style={{ marginBottom: 4 }}>Weekly Timesheet</h2>
@@ -465,6 +466,7 @@ export default function TimesheetWeek({ session }) {
 
       {econTotal && (econTotal.revenue > 0 || econTotal.cost > 0) && (
         <div data-testid="ts-week-economics" style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'var(--cf-space-2)', marginTop:'var(--cf-space-3)', padding: 12, background:'var(--cf-surface-subtle, #f9fafb)', borderRadius: 6 }}>
+          {!!data?.supplements?.length && <div style={{ gridColumn: '1 / -1' }}>Totals for the whole week, including supplemental timesheets.</div>}
           <EconCell label="Revenue"     value={`$${econTotal.revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} testId="ts-econ-revenue" />
           <EconCell label="Cost"        value={`$${econTotal.cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}    testId="ts-econ-cost" />
           <EconCell label="Gross Profit" value={`$${econTotal.gp.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}     testId="ts-econ-gp" emphasis={econTotal.gp > 0 ? 'good' : 'warn'} />

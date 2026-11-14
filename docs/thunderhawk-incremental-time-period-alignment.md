@@ -1,5 +1,13 @@
 # Incremental time and period alignment
 
+## Supplemental intake implementation — source only, November 14
+
+The current source resolves the same destination in preview and locked import. New Quanta source for an approved Core week requires an explicit review of a separate supplemental timesheet, linked to the preserved primary. A batch creates one supplement per primary, with its own entries, independent approval, frozen economics and accounting intent. Source changes, destination changes, locked periods and ambiguous overlapping periods invalidate intake. Exact source replay creates no additional review unit. Corrections within a supplement retain that unit.
+
+Module migration `008_supplemental_timesheets.sql` keeps original headers at sequence zero and replaces the person/week uniqueness with person/week/sequence uniqueness. The weekly grid remains primary-only and links each supplement; weekly financial totals explicitly include all review units. List/detail APIs and the field dictionary retain the parent/sequence/review fields. No original rate evidence is backfilled.
+
+PHP syntax and focused UI lint passed locally. The populated MariaDB fixture now exercises the actual import, rollback, retained old approval/reservation, independent approval, accounting intent, correction and two-connection parent lock. Full CI and hosted acceptance are pending. This source is not installed; the saved 75-minute source below is still unimported. The preceding accounting-production timing reply made no integration change.
+
 The November 14 refreshed cross-system test has reached a concrete intake defect. It has **not completed the updated round trip**. Evidence: [source capture and native Core diagnostic](../deploy/thunderhawk-updated-roundtrip-period-conflict-20261114.json).
 
 ## Verified state

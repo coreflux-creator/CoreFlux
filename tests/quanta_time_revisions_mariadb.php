@@ -186,4 +186,5 @@ setRequestTenantId(2);$check(quantaTimeRevisionRecent(2,7)['items']===[],'anothe
 $history=$pdo->query('SELECT * FROM quanta_time_revisions ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);$migrate('191_quanta_time_revisions.sql');
 $check($history===$pdo->query('SELECT * FROM quanta_time_revisions ORDER BY id')->fetchAll(PDO::FETCH_ASSOC),'schema replay preserves the correction history');
 echo "$passed Quanta correction integration checks passed\n";
+require __DIR__.'/fixtures/quanta_supplement_checks.php';
 $pdo->exec('DROP DATABASE '.$db);
