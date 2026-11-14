@@ -674,7 +674,9 @@ jobs:
           php tests/thunderhawk_payroll_export_upgrade_db_check.php --confirm-disposable-fixture
           php tests/thunderhawk_supplemental_time_upgrade_db_check.php --confirm-disposable-fixture
           php tests/thunderhawk_payroll_selection_upgrade_db_check.php --confirm-disposable-fixture
+          php tests/thunderhawk_job_source_upgrade_db_check.php --confirm-disposable-fixture
           php -l deploy/install_thunderhawk_supplemental_time.php
+          php -l deploy/install_thunderhawk_job_source.php
 
       - name: Exercise atomic time approval and weekly artifact reconciliation
         run: php tests/time_approval_projection_db_check.php --confirm-disposable-fixture
