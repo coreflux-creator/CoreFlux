@@ -71,10 +71,12 @@ function purepayPayrollAuthorityReserve(PDO $pdo,int $tenant,int $actor,string $
         $s=$pdo->prepare('SELECT * FROM time_entries WHERE tenant_id=? AND id IN ('.$marks.') ORDER BY id FOR UPDATE');
         $s->execute(array_merge([$owners['time']],$ids));$entries=$s->fetchAll(PDO::FETCH_ASSOC);
         if(count($entries)!==count($ids))throw new RuntimeException('A reviewed time entry is missing.');
-        $rateIds=array_values(array_unique(array_column($entries,'rate_snapshot_id')));sort($rateIds,SORT_NUMERIC);
-        $s=$pdo->prepare('SELECT id FROM placement_rates WHERE tenant_id=? AND id IN ('.implode(',',array_fill(0,count($rateIds),'?')).') ORDER BY id FOR UPDATE');
-        $s->execute(array_merge([$owners['placements']],$rateIds));
-        if(count($s->fetchAll(PDO::FETCH_COLUMN))!==count($rateIds))throw new RuntimeException('An approved rate snapshot is missing.');
+        // Lock and verify each original approval, not today's mutable rate row.
+        // Historical approvals without an archive still require their exact hashed row.
+        foreach($entries as$entry) {
+            $rate=timeApprovedRate($entry,$owners['time']);
+            if((int)$rate['tenant_id']!==$owners['placements'])throw new RuntimeException('The approved rate belongs to a different placement directory.');
+        }
         // Current-read locks precede the consistent source rebuild and claim insert.
         $placementIds=array_values(array_unique(array_column($entries,'placement_id')));sort($placementIds,SORT_NUMERIC);
         foreach([['people','person',$owners['people'],[(int)$delivery['entity_id']]],['placements','placement',$owners['placements'],$placementIds]]as[$table,$kind,$owner,$recordIds]) {

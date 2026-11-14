@@ -11,7 +11,7 @@ $options=[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>
 $pdo=new PDO('mysql:host=127.0.0.1;port=3306;charset=utf8mb4','root',$password,$options);
 $db='coreflux_ppinput_'.(defined('COREFLUX_RESULT_FIXTURE')?'result_':(defined('COREFLUX_AUTHORITY_FIXTURE')?'authority_':'')).($inCi?'ci':gmdate('YmdHis').'_'.getmypid());$pdo->exec('CREATE DATABASE '.$db);$pdo->exec('USE '.$db);
 $observer=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$db.';charset=utf8mb4','root',$password,$options);
-foreach(['158_integration_deliveries.sql','162_integration_delivery_receipt.sql','164_purepay_core_connection.sql']as$file)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);
+foreach(['158_integration_deliveries.sql','162_integration_delivery_receipt.sql','164_purepay_core_connection.sql','203_time_approval_economics.sql']as$file)foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../core/migrations/'.$file))as$sql)$pdo->exec($sql);
 $pdo->exec('CREATE TABLE people(id BIGINT PRIMARY KEY,tenant_id BIGINT,first_name VARCHAR(50),last_name VARCHAR(50),email_primary VARCHAR(100),status VARCHAR(20),deleted_at DATETIME NULL)');
 $pdo->exec('CREATE TABLE placements(id BIGINT PRIMARY KEY,tenant_id BIGINT,title VARCHAR(100),person_id BIGINT,client_id BIGINT,engagement_type VARCHAR(20),status VARCHAR(20),start_date DATE,end_date DATE,actual_end_date DATE,deleted_at DATETIME NULL)');
 $pdo->exec('CREATE TABLE core_record_numbers(tenant_id BIGINT,entity_type VARCHAR(32),record_id BIGINT,canonical_record_id BIGINT,record_number VARCHAR(64))');
@@ -23,6 +23,13 @@ $pdo->exec("INSERT INTO placements VALUES(1,20,'Assignment A',1,1,'w2','active',
 $pdo->exec("INSERT INTO core_record_numbers VALUES(10,'person',1,1,'P-1'),(20,'placement',1,1,'PL-1'),(20,'placement',2,2,'PL-2')");
 $pdo->exec("INSERT INTO placement_rates VALUES(1,20,1,52.5000,'hour','USD',1.50,NOW()),(2,20,2,70.1250,'hour','USD',1.75,NOW())");
 $pdo->exec("INSERT INTO time_entries VALUES(1,1,1,1,'2026-10-02','regular_billable',8.00,'manual_entry','manual','approved',NOW(),1,NULL,NULL,NULL,1),(2,1,1,2,'2026-10-03','OT_billable',2.25,'manual_entry','manual','approved',NOW(),2,NULL,NULL,NULL,1),(3,2,1,1,'2026-10-02','regular_billable',99.00,'manual_entry','manual','approved',NOW(),1,NULL,NULL,NULL,1)");
+$pdo->exec('ALTER TABLE time_entries ADD approved_by_user_id BIGINT DEFAULT 8, ADD approved_via VARCHAR(32) DEFAULT "manual",
+    ADD client_approver_email VARCHAR(255) NULL, ADD period_id BIGINT DEFAULT 1, ADD timesheet_id BIGINT DEFAULT 1,
+    ADD hour_type VARCHAR(32) DEFAULT "regular", ADD billable TINYINT DEFAULT 1,
+    ADD dimension_snapshot_json LONGTEXT NULL, ADD dimension_snapshot_hash CHAR(64) NULL');
+$pdo->exec('UPDATE time_entries SET hour_type="overtime" WHERE id=2');
+require_once __DIR__.'/fixtures/payroll_input_approval_evidence.php';
+payrollInputFixtureApprovalEvidence($pdo,[1,2,3]);
 $passed=0;$check=static function(bool $ok,string $label)use(&$passed){if(!$ok)throw new RuntimeException($label);$passed++;echo "PASS $label\n";};
 $fails=static function(callable $f):bool{try{$f();return false;}catch(Throwable $e){return true;}};
 $instance='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';$owners=['time'=>1,'people'=>10,'placements'=>20];
@@ -55,7 +62,7 @@ foreach([['person',10,1,'P-1','emp-a'],['placement',20,1,'PL-1','assignment-a'],
     $r=integrationDeliveryPreview($pdo,1,7,$ctx,['organization_id'=>'org-a','body'=>$body]);
     $pdo->prepare('UPDATE integration_deliveries SET state="delivered",remote_id=:n,remote_receipt_id=:r WHERE id=:i')->execute(['n'=>$native,'r'=>'cfl_'.integrationDeliveryHash(['org-a',$ref]),'i'=>$r['id']]);
 }
-$preview=static fn():array=>purepayPayrollInputPreview($pdo,1,7,$instance,$owners,'P-1','2026-10-01','2026-10-15');
+$preview=static fn(string $end='2026-10-15'):array=>purepayPayrollInputPreview($pdo,1,7,$instance,$owners,'P-1','2026-10-01',$end);
 $send=static fn(array $p):array=>purepayPayrollInputSend($pdo,1,7,$instance,$owners,(int)$p['delivery']['id'],$p['delivery']['review_hash']);
 $reconcile=static fn(array $p):array=>purepayPayrollInputReconcile($pdo,1,$instance,$owners,(int)$p['delivery']['id'],$p['delivery']['review_hash']);
 $before=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
@@ -91,8 +98,29 @@ $pdo->exec('UPDATE placements SET title="Assignment A after reviewed alias fixtu
 $p=$preview();
 putenv('COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY=1');
 $pdo->exec('UPDATE placement_rates SET pay_rate=99.0000 WHERE id=1');
-$check($fails(fn()=>$send($p)) && $posts===0,'frozen rate drift invalidates unsent review');
+$rateEdited=$preview();
+$check($rateEdited['packet']===$p['packet'] && $rateEdited['delivery']['id']===$p['delivery']['id'] && $posts===0,'master rate edits preserve the approved packet and review identity without transmission');
+$second=$pdo->query('SELECT * FROM time_entries WHERE id=1')->fetch(PDO::FETCH_ASSOC);
+$second['id']=4;$second['hours']='1.00';$second['approved_by_user_id']=9;
+$columns=array_keys($second);
+$pdo->prepare('INSERT INTO time_entries (`'.implode('`,`',$columns).'`) VALUES('.implode(',',array_fill(0,count($columns),'?')).')')->execute(array_values($second));
+payrollInputFixtureApprovalEvidence($pdo,[4]);
+$twoApprovals=$preview();$parts=$twoApprovals['packet']['components'];
+$check(count($parts)===3 && $parts[0]['rate']['snapshot_id']===$parts[2]['rate']['snapshot_id']
+    && $parts[0]['rate']['pay_rate']==='52.5000' && $parts[2]['rate']['pay_rate']==='99.0000',
+    'separate approvals of the same rate ID retain their own original values in one payroll packet');
+$pdo->exec('DELETE FROM time_entries WHERE id=4');$pdo->exec('DELETE FROM time_approval_rates WHERE time_entry_id=4');
 $pdo->exec('UPDATE placement_rates SET pay_rate=52.5000 WHERE id=1');
+$archive=$pdo->query('SELECT * FROM time_approval_rates WHERE tenant_id=1 AND time_entry_id=1')->fetch(PDO::FETCH_ASSOC);
+$pdo->exec('UPDATE time_approval_rates SET rate_json="{}" WHERE tenant_id=1 AND time_entry_id=1');
+$check($fails($preview) && $posts===0,'corrupt private approval values block payroll preview');
+$pdo->prepare('UPDATE time_approval_rates SET rate_json=? WHERE id=?')->execute([$archive['rate_json'],$archive['id']]);
+$pdo->exec('UPDATE time_approval_rates SET tenant_id=99 WHERE tenant_id=1 AND time_entry_id=1');
+$check($fails($preview) && $posts===0,'missing original-company archive cannot fall back to the current rate or another company');
+$pdo->exec('UPDATE time_approval_rates SET tenant_id=1 WHERE tenant_id=99 AND time_entry_id=1');
+$pdo->exec('UPDATE time_entries SET approved_by_user_id=99 WHERE id=1');
+$check($fails($preview) && $posts===0,'changed independent reviewer invalidates the retained approval');
+$pdo->exec('UPDATE time_entries SET approved_by_user_id=8 WHERE id=1');
 $pdo->exec('UPDATE time_entries SET hours=9 WHERE id=1');$check($fails(fn()=>$send($p)) && $posts===0,'approved hour drift invalidates unsent review');$pdo->exec('UPDATE time_entries SET hours=8 WHERE id=1');
 $pdo->exec('UPDATE time_entries SET status="pending_review" WHERE id=1');$check($fails(fn()=>$send($p)) && $posts===0,'revoked approval invalidates unsent packet');$pdo->exec('UPDATE time_entries SET status="approved" WHERE id=1');
 $pdo->exec('UPDATE time_entries SET payroll_extracted_at=NOW() WHERE id=1');$check($fails($preview),'already-extracted source is rejected');$pdo->exec('UPDATE time_entries SET payroll_extracted_at=NULL WHERE id=1');
@@ -100,14 +128,14 @@ $pdo->exec('UPDATE placements SET engagement_type="c2c" WHERE id=1');$check($fai
 $result=$send($p);$check($result['state']==='delivered' && $posts===1,'reviewed packet receives a recorded provider receipt');
 $check($send($p)===$result && $posts===1,'delivered replay does not resend');
 $check($pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)===$before,'receipt does not extract or mutate source time');
-$pdo->exec('UPDATE time_entries SET hours=7 WHERE id=1');$p=$preview();$mode='lost';
+$p=$preview('2026-10-16');$mode='lost';
 $check($send($p)['state']==='uncertain','lost response holds the attempt');$count=$posts;
 $check($fails(fn()=>$send($p)) && $posts===$count,'uncertain packet cannot be resent');
 $connect('synthetic-rotated-input-key');$check($reconcile($p)['state']==='delivered' && $posts===$count,'receipt recovery tolerates reviewed credential rotation without another write');
-$pdo->exec('UPDATE time_entries SET hours=6 WHERE id=1');$p=$preview();$mode='wrong';
+$p=$preview('2026-10-17');$mode='wrong';
 $check($send($p)['state']==='uncertain','receipt claiming payroll creation is rejected');
 $check($reconcile($p)['state']==='delivered','read-only recovery accepts the actual matching input receipt');
-$pdo->exec('UPDATE time_entries SET hours=5 WHERE id=1');$p=$preview();$mode='no_receipt';$send($p);$count=$posts;
+$p=$preview('2026-10-18');$mode='no_receipt';$send($p);$count=$posts;
 $check($fails(fn()=>$reconcile($p)) && $posts===$count,'absent receipt remains held without automatic retry');
 $pdo->exec('UPDATE time_entries SET source="quanta",source_system="quanta" WHERE id=1');
 $pdo->exec("INSERT INTO quanta_time_imports VALUES(1,1,1,'quanta-1','regular','".str_repeat('b',64)."',NULL)");

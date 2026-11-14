@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__.'/delivery_enablement.php';
 require_once __DIR__.'/purepay_links.php';
+require_once __DIR__.'/../../modules/time/lib/approval_economics.php';
 
 const PUREPAY_PAYROLL_INPUT_VERSION='2026-10-21.1';
 
@@ -65,9 +66,8 @@ function purepayPayrollInputBuild(PDO $pdo,int $tenant,string $instance,array $o
         if((int)$placement['record']['person_id']!==$person['entity_id'] || $placement['record']['engagement_type']!=='w2')
             throw new RuntimeException('An approved entry has no matching historical W-2 placement in the authorized directory.');
         $placementLink=purepayPayrollInputLink($pdo,$tenant,$access['connection'],$placement,$org);
-        $s=$pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id=:t AND placement_id=:p AND id=:r AND approved_at IS NOT NULL');
-        $s->execute(['t'=>$owners['placements'],'p'=>$entry['placement_id'],'r'=>$entry['rate_snapshot_id']]);$rate=$s->fetch(PDO::FETCH_ASSOC);
-        if(!$rate)throw new RuntimeException('An approved entry is missing its frozen placement pay rate.');
+        $rate=timeApprovedRate($entry,$owners['time']);
+        if((int)$rate['tenant_id']!==$owners['placements'])throw new RuntimeException('The approved rate belongs to a different placement directory. Review the company alignment.');
         $multiplier=match($entry['category']) {
             'regular_billable','regular_nonbillable','holiday','vacation','sick','bereavement'=>'1.00',
             'OT_billable','OT_nonbillable'=>$rate['ot_multiplier'],

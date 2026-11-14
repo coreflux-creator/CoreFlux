@@ -7,7 +7,7 @@ require_once __DIR__.'/../core/integrations/purepay_payroll_inputs.php';
 putenv('COREFLUX_INTEGRATION_INSTANCE_ID='.$instance);
 setRequestTenantId(1);
 $quantaContext=$context;
-foreach(['158_integration_deliveries.sql','162_integration_delivery_receipt.sql','164_purepay_core_connection.sql']as$file)$migrate($file);
+foreach(['158_integration_deliveries.sql','162_integration_delivery_receipt.sql','164_purepay_core_connection.sql','203_time_approval_economics.sql']as$file)$migrate($file);
 $pdo->exec('ALTER TABLE people ADD status VARCHAR(20) DEFAULT "active"');
 $pdo->exec('ALTER TABLE placements ADD client_id BIGINT DEFAULT 1');
 $pdo->exec('ALTER TABLE core_record_numbers ADD canonical_record_id BIGINT');
@@ -16,6 +16,11 @@ $pdo->exec('ALTER TABLE time_entries ADD approved_at DATETIME NULL, ADD payable 
 $pdo->exec('UPDATE time_entries SET approved_at=NOW(),status=IF(id IN(1,2),"approved","pending_review")');
 $pdo->exec('CREATE TABLE placement_rates(id BIGINT PRIMARY KEY,tenant_id BIGINT,placement_id BIGINT,pay_rate DECIMAL(10,4),pay_rate_unit VARCHAR(16),currency CHAR(3),ot_multiplier DECIMAL(4,2),approved_at DATETIME)');
 $pdo->exec('INSERT INTO placement_rates VALUES(81,1,42,52.5000,"hour","USD",1.50,NOW())');
+$pdo->exec('ALTER TABLE time_entries ADD approved_by_user_id BIGINT DEFAULT 8, ADD approved_via VARCHAR(32) DEFAULT "manual",
+    ADD client_approver_email VARCHAR(255) NULL, ADD period_id BIGINT DEFAULT 1,
+    ADD dimension_snapshot_json LONGTEXT NULL, ADD dimension_snapshot_hash CHAR(64) NULL');
+require_once __DIR__.'/fixtures/payroll_input_approval_evidence.php';
+payrollInputFixtureApprovalEvidence($pdo,[1,2]);
 $remote=$validRemote;$mode='current';$requests=0;$posts=0;$passed=0;
 $GLOBALS['__quanta_transport']=static function(string $method,string $url)use(&$mode,&$requests,$remote,$quantaContext):array{
     if(str_ends_with(parse_url($url,PHP_URL_PATH),'/context'))return ['status'=>200,'body'=>json_encode($quantaContext)];

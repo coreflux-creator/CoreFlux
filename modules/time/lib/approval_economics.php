@@ -58,7 +58,7 @@ function timeApprovedRate(array $entry,int $tenant): array
         throw new RuntimeException('This older approval has no verified rate values. Review its original evidence before accounting.',409);
     }
     timeApprovalEconomicsRequireSchema();
-    $q=getDB()->prepare('SELECT * FROM time_approval_rates WHERE tenant_id=? AND time_entry_id=?');
+    $q=getDB()->prepare('SELECT * FROM time_approval_rates WHERE tenant_id=? AND time_entry_id=?'.(getDB()->inTransaction()?' FOR UPDATE':''));
     $q->execute([$tenant,$entry['id']]);$archive=$q->fetch(PDO::FETCH_ASSOC);
     if ($archive) {
         $rate=json_decode($archive['rate_json'],true);
@@ -75,7 +75,7 @@ function timeApprovedRate(array $entry,int $tenant): array
         // Older hashed approvals can be read only while the exact original row
         // still exists. Never manufacture a historical rate from today's values.
         require_once __DIR__.'/time.php';
-        $q=getDB()->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND id=? AND placement_id=?');
+        $q=getDB()->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND id=? AND placement_id=?'.(getDB()->inTransaction()?' FOR UPDATE':''));
         $q->execute([timePlacementGraphTenantId($tenant),$entry['rate_snapshot_id'],$entry['placement_id']]);$rate=$q->fetch(PDO::FETCH_ASSOC);
         if (!$rate || !hash_equals($snapshot['source_rate_hash'],hash('sha256',staffingDimensionSnapshotCanonicalJson($rate)))) {
             throw new RuntimeException('The original approved rate is unavailable. Review historical evidence before accounting.',409);

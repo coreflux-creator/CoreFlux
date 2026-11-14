@@ -18,10 +18,12 @@ Reviewed native and Quanta corrections withdraw a pending/failed, unposted reque
 
 `GET /modules/time/api/accounting_handoffs.php?timesheet_id=...` requires native sign-in and `time.view` in the original workspace. It returns status and a review revision, never rate JSON or event payloads. Detailed processing errors also require accounting read access. `POST` requires `time.approve`, `accounting.je.post`, native request protections and the displayed revision. The service rechecks that revision under its delivery lock and records a successful operator retry receipt. These are internal-ledger actions, not payroll execution or payment-rail instructions.
 
+PurePayroll input preparation and source reservation now read each entry's retained approval values. A master-rate edit does not reprice or invalidate an unchanged approved packet. Separate approvals that reused the same rate ID retain separate values. Missing/corrupt archives, changed original reviewers and changes to approved time still refuse export. Transactional reads lock the retained evidence before reserving sources; old hashed approvals still require the original unchanged source row. Provider packet/receipt formats and the held-review behavior are unchanged. This follow-up is source-only until its database fixtures and complete CI pass.
+
 ## Remaining work before installation and full acceptance
 
 - Add the status/retry screen and the reviewed operational retry policy. This change provides the API and service; it does not install a scheduler or imply unattended recovery.
-- Migrate the remaining Billing/AP generators, period bundles, native payroll and PurePayroll input readers to the per-entry archived rates. Their current rate-ID lookups are not sufficient. The staffing accounting emitter and source-accrual allocation are converted here.
+- Migrate the remaining Billing/AP generators, period bundles and native payroll readers to the per-entry archived rates. Their current rate-ID lookups are not sufficient. The staffing accounting emitter, source-accrual allocation and PurePayroll input readers are converted here.
 - Complete original-workspace ownership across the remaining financial readers, weekly aggregate breakdowns, earning categories, rate units/currencies and multi-period amounts.
 - Complete paired financial reversal/replacement, historical aggregate provenance, migrations and the guarded pilot upgrade; then repeat the signed-in Quanta/PurePay/PurePayroll end-to-end acceptance.
 

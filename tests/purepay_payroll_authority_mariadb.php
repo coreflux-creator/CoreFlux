@@ -23,7 +23,7 @@ putenv('COREFLUX_PUREPAY_PAYROLL_AUTHORITY=1');
 $check($fails(fn()=>$reserve($p,$request)),'source authority refuses absent database guards');
 $migrate('core/migrations/166_payroll_source_authority.sql');
 // Match the real module columns omitted from the minimal input-only fixture.
-$pdo->exec('ALTER TABLE time_entries ADD custom_category_id BIGINT NULL,ADD approved_by_user_id BIGINT NULL,ADD approved_via VARCHAR(32) NULL,ADD source_ref_id BIGINT NULL,ADD payroll_extracted_by_user_id BIGINT NULL,ADD bill_extracted_at DATETIME NULL,ADD bill_extracted_ref BIGINT NULL,ADD description VARCHAR(500) NULL');
+$pdo->exec('ALTER TABLE time_entries ADD custom_category_id BIGINT NULL,ADD source_ref_id BIGINT NULL,ADD payroll_extracted_by_user_id BIGINT NULL,ADD bill_extracted_at DATETIME NULL,ADD bill_extracted_ref BIGINT NULL,ADD description VARCHAR(500) NULL');
 $pdo->exec('ALTER TABLE placement_rates ADD approved_by_user_id BIGINT NULL,ADD bill_rate DECIMAL(10,4) NULL');
 $migrate('modules/time/migrations/011_payroll_source_authority.sql');
 $migrate('modules/placements/migrations/008_payroll_source_authority.sql');
@@ -31,14 +31,15 @@ purepayPayrollAuthoritySchema($pdo);
 // Retire only the synthetic lost-attempt case left by the included fixture.
 $pdo->exec('UPDATE integration_deliveries SET state="cancelled" WHERE provider="purepayroll" AND state="uncertain"');
 putenv('COREFLUX_PUREPAY_PAYROLL_INPUT_DELIVERY=1');
-$p=$preview();
+$p=$preview('2026-10-19');
 $check($fails(fn()=>$reserve($p,$request)),'unconfirmed input cannot reserve approved source');
 $send($p);$initial=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
 $pdo->exec('UPDATE time_entries SET hours=7 WHERE id=1');
 $check($fails(fn()=>$reserve($p,$request)) && (int)$pdo->query('SELECT COUNT(*) FROM payroll_source_claims')->fetchColumn()===0,'source drift before reservation leaves no claims');
-$pdo->exec('UPDATE time_entries SET hours=5 WHERE id=1');
+$pdo->exec('UPDATE time_entries SET hours=8 WHERE id=1');
 $pdo->exec('UPDATE placement_rates SET pay_rate=55 WHERE id=1');
-$check($fails(fn()=>$reserve($p,$request)),'rate drift before reservation invalidates the reviewed input');
+$same=$preview('2026-10-19');
+$check($same['packet']===$p['packet'] && $same['delivery']['id']===$p['delivery']['id'],'current rate changes before reservation preserve archived approved input');
 $pdo->exec('UPDATE placement_rates SET pay_rate=52.5000 WHERE id=1');
 $pdo->exec('UPDATE time_entries SET status="rejected" WHERE id=1');
 $check($fails(fn()=>$reserve($p,$request)),'approval revoked after input delivery cannot authorize a draft');
