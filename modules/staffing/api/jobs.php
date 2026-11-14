@@ -22,7 +22,14 @@ $canManage = rbac_legacy_can($user, 'staffing.jobs.manage');
 function staffingJobPublicRow(array $row,int $workspace): array
 {
     $state=staffingJobSourceState($row);
-    if(($row['source_system']??null)==='jobdiva'&&($state['source']['workspace_id']??null)!==$workspace)$row['external_id']=null;
+    $visible=($state['source']['workspace_id']??null)===$workspace;
+    // Legacy jobs retain their existing provider number through the exact
+    // workspace mapping; displaying it does not grant source field ownership.
+    if(($row['source_system']??null)==='jobdiva'&&$state['source']===null){
+        $link=mappingFindExternal($workspace,'jobdiva','staffing_job',(int)$row['id']);
+        $visible=$link!==null&&($link['external_id']??null)===$row['external_id'];
+    }
+    if(($row['source_system']??null)==='jobdiva'&&!$visible)$row['external_id']=null;
     unset($row['coreflux_source_state']);return$row;
 }
 

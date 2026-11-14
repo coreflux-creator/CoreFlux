@@ -57,8 +57,11 @@ function companyMergeHttpCases(PDO $pdo,int $parent,int $actor,callable $request
             $pdo->exec('DROP TRIGGER company_merge_http_audit_failure');$trigger=false;
             require_once __DIR__.'/../../modules/staffing/lib/jobs.php';
             $sourceExternal='http-source-job-'.$mode;$sourceJob=staffingJobEnsureFromJobDivaPayload($child,$sourceExternal,['title'=>'Original source HTTP role','city'=>'Hamilton'],$actor);$sourceId=(int)$sourceJob['id'];$jobIds[]=$sourceId;
+            mappingBindStable($child,'jobdiva','staffing_job',$sourceExternal,$sourceId,['title'=>'Original source HTTP role'],'pull',$actor);
+            $pdo->prepare('UPDATE staffing_jobs SET coreflux_source_state=NULL WHERE tenant_id=? AND id=?')->execute([$child,$sourceId]);
             [$status,$sourceDetail]=$request($jobUrl.'get&id='.$sourceId,null,true,$child);$sourceRevision=$sourceDetail['job']['edit_revision'];
             $expect($status===200&&$sourceDetail['can_manage']===true&&!array_key_exists('coreflux_source_state',$sourceDetail['job']),"$mode: job review exposes the displayed version without raw ownership metadata");
+            $expect($sourceDetail['job']['external_id']===$sourceExternal&&$sourceDetail['source_review']['source']===null,"$mode: legacy job retains its exact provider number without silently adopting source ownership");
             $expect($request($jobUrl.'close',['id'=>$sourceId,'edit_revision'=>$sourceRevision],true,$child)[0]===200&&$read('staffing_jobs',$sourceId)['status']==='closed',"$mode: HTTP closure uses reviewed native ownership and audit");
             $expect($request($jobUrl.'update',['id'=>$sourceId,'title'=>'Stale source job form','edit_revision'=>$sourceRevision],true,$child)[0]===409,"$mode: HTTP native update refuses the version preceding closure");
             staffingJobEnsureFromJobDivaPayload($child,$sourceExternal,['status'=>'active'],$actor);
@@ -157,7 +160,10 @@ function companyMergeHttpCases(PDO $pdo,int $parent,int $actor,callable $request
         }
     }finally{
         if($trigger)$pdo->exec('DROP TRIGGER company_merge_http_audit_failure');
-        foreach($jobIds as$id)$pdo->prepare('DELETE FROM staffing_jobs WHERE id=?')->execute([$id]);
+        foreach($jobIds as$id){
+            $pdo->prepare('DELETE FROM external_entity_mappings WHERE internal_entity_type="staffing_job" AND internal_entity_id=? AND tenant_id IN(?,?)')->execute([$id,$parent,$child]);
+            $pdo->prepare('DELETE FROM staffing_jobs WHERE id=?')->execute([$id]);
+        }
         foreach($clientIds as$id){$pdo->prepare('DELETE FROM staffing_clients WHERE id=?')->execute([$id]);$pdo->prepare('DELETE FROM core_record_numbers WHERE entity_type="client" AND record_id=?')->execute([$id]);}
         foreach($vendorIds as$id)$pdo->prepare('DELETE FROM ap_vendors_index WHERE id=?')->execute([$id]);
         foreach($companyIds as$id){
