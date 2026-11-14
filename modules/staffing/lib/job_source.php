@@ -79,7 +79,7 @@ function staffingJobSourceProject(PDO $pdo,int $workspace,int $owner,string $ext
     }
     if(!$existing||$patch||$state!==$beforeState){
         $state['revision']++;staffingJobSourcePersist($pdo,$owner,$id,$state);
-        companySourceAudit($pdo,$workspace,$owner,'staffing_jobs',$id,'staffing.job.source_observed',array_keys($values),$actor,['source'=>$source,'applied_fields'=>array_keys($patch),'held_fields'=>array_values(array_intersect(array_keys($values),$state['owned']))]);
+        companySourceAudit($pdo,$workspace,$owner,'staffing_jobs',$id,'staffing.job.source_observed',array_keys($values),$actor,['source'=>$source,'revision'=>$state['revision'],'observed_values'=>$values,'applied_fields'=>array_keys($patch),'held_fields'=>array_values(array_intersect(array_keys($values),$state['owned']))]);
     }
     $q=$pdo->prepare('SELECT * FROM staffing_jobs WHERE tenant_id=? AND id=?');$q->execute([$owner,$id]);return$q->fetch(PDO::FETCH_ASSOC);
 }
@@ -116,7 +116,10 @@ function staffingJobSourceDecide(int $workspace,int $id,array $fields,string $mo
         $saved=staffingJobSaveNative($workspace,$id,$patch,$actor,$review['edit_revision']);$state=staffingJobSourceState($saved);
         if($mode==='follow_source'){$state['owned']=array_values(array_diff($state['owned'],$fields));$state['revision']++;staffingJobSourcePersist($pdo,$scope['owner'],$id,$state);}
         $result=['job_id'=>$id,'fields'=>$fields,'mode'=>$mode];
-        companySourceAudit($pdo,$workspace,$scope['owner'],'staffing_jobs',$id,'staffing.job.source_reviewed',$fields,$actor,['review_token'=>$token,'request_digest'=>$digest,'result'=>$result]);
+        companySourceAudit($pdo,$workspace,$scope['owner'],'staffing_jobs',$id,'staffing.job.source_reviewed',$fields,$actor,
+            ['review_token'=>$token,'request_digest'=>$digest,'result'=>$result,'source'=>$review['source'],'edit_revision'=>$review['edit_revision'],
+                'observed_values'=>array_intersect_key($review['proposed'],array_flip($fields)),
+                'previous_values'=>array_intersect_key($review['current'],array_flip($fields))]);
         return$result+['replayed'=>false];
     });
 }

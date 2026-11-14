@@ -50,6 +50,8 @@ try{
         }
         $review=staffingJobSourceReview($child,$id);$decision=staffingJobSourceDecide($child,$id,['location_city'],'use_once',$review['review_token'],$actor);
         $check(!$decision['replayed']&&$read($id)['location_city']==='Mapped city'&&in_array('location_city',staffingJobSourceState($read($id))['owned'],true),$mode.': use once applies the observed value and retains Core ownership');
+        $q=$pdo->prepare('SELECT meta_json FROM audit_log WHERE tenant_id=? AND target_id=? AND event="staffing.job.source_reviewed" ORDER BY id DESC LIMIT 1');$q->execute([$child,$id]);$receipt=json_decode($q->fetchColumn(),true,32,JSON_THROW_ON_ERROR);
+        $check($receipt['source']['external_id']===$ext&&$receipt['observed_values']===['location_city'=>'Mapped city']&&$receipt['previous_values']===['location_city'=>'']&&$receipt['edit_revision']===$review['edit_revision'],$mode.': durable receipt retains the exact reviewed source and before/observed values');
         $newReview=staffingJobSourceReview($child,$id);staffingJobSaveNative($child,$id,['location_city'=>'Later Core edit'],$actor,$newReview['edit_revision']);
         $replay=staffingJobSourceDecide($child,$id,['location_city'],'use_once',$review['review_token'],$actor);
         $check($replay['replayed']&&$read($id)['location_city']==='Later Core edit',$mode.': retry returns the original receipt without reapplying old values');
