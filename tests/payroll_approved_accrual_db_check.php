@@ -40,6 +40,9 @@ $pdo->exec("CREATE TRIGGER ci_payroll_accrual_reject BEFORE INSERT ON accounting
     BEGIN IF NEW.link_kind='accrual' AND EXISTS (SELECT 1 FROM payroll_runs WHERE tenant_id=NEW.tenant_id
        AND CONCAT('payroll_run:',id)=NEW.source_record_id AND notes='CI force accrual failure')
     THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='CI mandatory payroll link failure'; END IF; END");
+$pdo->exec("CREATE TRIGGER ci_payroll_release_reject BEFORE INSERT ON audit_log FOR EACH ROW
+    BEGIN IF NEW.event='time.payroll.sources_released' AND NEW.meta_json LIKE '%CI force release receipt failure%'
+    THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='CI release receipt failure'; END IF; END");
 $pdo->beginTransaction();
 try {
     $actor=(int)$scalar('SELECT MIN(id) FROM users WHERE tenant_id=?',[$tenant]);
@@ -133,6 +136,9 @@ try {
     $check($refuses(fn()=>timeSettlementUnExtract([$entry],'payroll','CI retained computation history',$actor),'uncomputed draft'),
         'retained computation history still prevents blind release after lines are removed');
     $pdo->prepare('UPDATE payroll_runs SET computed_at=NULL WHERE id=?')->execute([$draft]);
+    $check($refuses(fn()=>timeSettlementUnExtract([$entry],'payroll','CI force release receipt failure',$actor),'CI release receipt failure')
+        && (int)$scalar('SELECT payroll_extracted_ref FROM time_entries WHERE id=?',[$entry])===$draft && $pdo->inTransaction(),
+        'a failed mandatory release receipt restores the source stamp and preserves caller transaction');
     $release=timeSettlementUnExtract([$entry],'payroll','CI reviewed uncomputed draft release',$actor);
     $check($release['unextracted_count']===1 && $pdo->inTransaction()
         && !$scalar('SELECT payroll_extracted_ref FROM time_entries WHERE id=?',[$entry]),
@@ -181,6 +187,7 @@ try {
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $pdo->exec('DROP TRIGGER IF EXISTS ci_payroll_accrual_reject');
+    $pdo->exec('DROP TRIGGER IF EXISTS ci_payroll_release_reject');
     setRequestTenantId($tenant);
 }
 $check($counts()===$baseline,'disposable source and payroll ledger fixture rolls back completely');

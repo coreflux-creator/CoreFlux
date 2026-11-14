@@ -221,6 +221,17 @@ try {
         'a shared accounting directory does not borrow another time workspace assignment accrual');
     setRequestTenantId(10);
     // Older installations used text references: preserve those reads without rewriting them.
+    $before=$pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll();
+    $pdo->beginTransaction();$pdo->query('SELECT id FROM payroll_runs WHERE id='.$run.' FOR UPDATE')->fetchColumn();$main=$pdo;
+    $second=new PDO('mysql:host=127.0.0.1;port=3306;dbname='.$db.';charset=utf8mb4','root',$inCi?'root':getenv('COREFLUX_DELIVERY_TEST_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
+    $second->exec('SET SESSION innodb_lock_wait_timeout=1');
+    try {
+        $pdo=$second;
+        $check($fails(fn()=>timeSettlementUnExtract([1,2],'payroll','CI competing payroll source release',7),'Lock wait timeout')&&!$pdo->inTransaction(),
+            'source release waits for a competing payroll writer and rolls back on timeout');
+    } finally {$pdo=$main;$pdo->rollBack();$second=null;}
+    $check($pdo->query('SELECT * FROM time_entries ORDER BY id')->fetchAll()===$before,
+        'failed competing release preserves every original source stamp');
     $pdo->exec('ALTER TABLE time_entries MODIFY payroll_extracted_ref VARCHAR(100) NULL');
     $pdo->prepare("UPDATE time_entries SET payroll_extracted_ref=? WHERE tenant_id=10 AND payroll_extracted_ref=?")->execute(['payroll:run#'.$run,(string)$run]);
     $check(payrollRunExtractedHours($run)===$hours&&payrollAccountingStaffingAccrualGroups(10,$run,[20=>['person_id'=>1]])===$coverage,'legacy text run references retain hours and accrual coverage');
