@@ -288,6 +288,11 @@ try {
         'per-vendor time bundles also stay separate by legal entity');
 
     require_once __DIR__ . '/../modules/billing/lib/billing.php';
+    $pdo->prepare('INSERT INTO companies(tenant_id,name) VALUES(?,?)')->execute([$tenantId,'CI Approved Time Client']);
+    $billingCompany=(int)$pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO staffing_clients(tenant_id,name,company_id) VALUES(?,?,?)')->execute([$tenantId,'CI Approved Time Client',$billingCompany]);
+    $billingClient=(int)$pdo->lastInsertId();
+    $pdo->prepare('UPDATE placements SET client_id=? WHERE tenant_id=? AND id=?')->execute([$billingClient,$tenantId,$placementId]);
     $refuses = static function(callable $read, string $fragment) use ($assert): void {
         try { $read(); } catch (RuntimeException $error) {
             $assert(str_contains($error->getMessage(),$fragment), 'review failure identifies '.$fragment);

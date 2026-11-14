@@ -34,7 +34,7 @@ $a('uses the extraction stamp rather than a date cutoff',
     str_contains($lib, "'te.bill_extracted_at IS NULL'")
     && !str_contains($lib, "'te.work_date > :cutoff'"));
 $a('computes per-entry bill_rate from the locked rate snapshot',
-    str_contains($lib, "\$ratesById[\$rateId]")
+    str_contains($lib, "\$ratesByEntry[(int)\$e['id']]")
     && str_contains($lib, "\$rate['adjusted_bill_rate'] ?? \$rate['bill_rate']"));
 $a('applies category multiplier per hour_type',
     str_contains($lib, 'timeRateCategoryMultiplier($rate'));
