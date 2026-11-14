@@ -1,6 +1,7 @@
 name: CoreFlux CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, master, develop, codex/coreaccounting-native, codex/quanta-profile-return, codex/placement-end-replay]
   pull_request:
