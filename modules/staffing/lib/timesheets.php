@@ -716,39 +716,14 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
 
 /** Reject the whole week — rows return to draft, reason captured on header. */
 function staffingTimesheetReject(int $userId, int $personId, string $periodStart, string $periodEnd, string $reason): array {
-    staffingTimesheetValidateWeek($personId, $periodStart, $periodEnd);
-    $header = staffingTimesheetFind($personId, $periodStart);
-    if (!$header) throw new \RuntimeException('Timesheet not found');
-    if ($header['status'] !== 'submitted') {
-        throw new \RuntimeException("Cannot reject a {$header['status']} timesheet");
-    }
-    $headerId = (int) $header['id'];
-
-    $pdo = getDB();
-    $ownsTxn = cf_tx_begin($pdo);
-    try {
-        staffingTimeUpdate('staffing_timesheets', $headerId, [
-            'status'              => 'rejected',
-            'rejected_at'         => date('Y-m-d H:i:s'),
-            'rejected_by_user_id' => $userId,
-            'rejection_reason'    => $reason,
-        ]);
-        $upd = $pdo->prepare(
-            "UPDATE time_entries
-                SET status = 'rejected', rejected_reason = :r
-              WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
-        );
-        $upd->execute(['t' => currentTenantId(), 'tid' => $headerId, 'r' => $reason]);
-        staffingTimesheetRecordArtifactEvent($headerId, 'timesheet.rejected', $userId, [
-            'reason' => $reason,
-        ]);
-        cf_tx_commit($pdo, $ownsTxn);
-    } catch (\Throwable $e) {
-        cf_tx_rollback($pdo, $ownsTxn);
-        throw $e;
-    }
-
-    return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
+    require_once __DIR__.'/../../time/lib/native_decisions.php';
+    return StaffingNativeTimeEdit::run(static function()use($userId,$personId,$periodStart,$periodEnd,$reason):array {
+        staffingTimesheetValidateWeek($personId,$periodStart,$periodEnd);
+        $header=staffingTimesheetFind($personId,$periodStart);
+        if (!$header || $header['period_end']!==$periodEnd) throw new RuntimeException('Timesheet not found',404);
+        timeNativeDecisionCommit($userId,'weeks',[(int)$header['id']],'reject',null,$reason,false);
+        return staffingTimesheetWeek($personId,$periodStart,$periodEnd);
+    });
 }
 
 /** Snapshot of the prior week — used by `prefill_from_last_week`. Returns
@@ -961,57 +936,8 @@ function staffingTimesheetBulkApprove(int $userId, array $ids): array {
 
 /** Reject selected submitted weeks atomically with one clear reason. */
 function staffingTimesheetBulkReject(int $userId, array $ids, string $reason): array {
-    $ids = staffingTimesheetBulkIds($ids);
-    $reason = trim($reason);
-    if ($reason === '') throw new \RuntimeException('A rejection reason is required.');
-    $reasonLength = function_exists('mb_strlen') ? mb_strlen($reason) : strlen($reason);
-    if ($reasonLength > 500) throw new \RuntimeException('The rejection reason must be 500 characters or fewer.');
-
-    $pdo = getDB();
-    $ownsTxn = cf_tx_begin($pdo);
-    try {
-        $headers = staffingTimesheetLockHeaders($ids);
-        foreach ($headers as $header) {
-            if (($header['status'] ?? '') !== 'submitted') {
-                throw new \RuntimeException(
-                    "Timesheet #{$header['id']} is {$header['status']}; only submitted timesheets can be rejected."
-                );
-            }
-        }
-
-        $rowUpdate = $pdo->prepare(
-            "UPDATE time_entries
-                SET status = 'rejected', rejected_reason = :reason
-              WHERE tenant_id = :tenant_id
-                AND timesheet_id = :timesheet_id
-                AND status = 'pending_review'"
-        );
-        foreach ($ids as $headerId) {
-            staffingTimeUpdate('staffing_timesheets', $headerId, [
-                'status'              => 'rejected',
-                'rejected_at'         => date('Y-m-d H:i:s'),
-                'rejected_by_user_id' => $userId,
-                'rejection_reason'    => $reason,
-            ]);
-            $rowUpdate->execute([
-                'tenant_id'   => currentTenantId(),
-                'timesheet_id'=> $headerId,
-                'reason'      => $reason,
-            ]);
-            if ($rowUpdate->rowCount() < 1) {
-                throw new \RuntimeException("Timesheet #{$headerId} has no submitted entries to reject.");
-            }
-            staffingTimesheetRecordArtifactEvent($headerId, 'timesheet.rejected', $userId, [
-                'reason' => $reason,
-                'bulk' => true,
-            ]);
-        }
-        cf_tx_commit($pdo, $ownsTxn);
-    } catch (\Throwable $e) {
-        cf_tx_rollback($pdo, $ownsTxn);
-        throw $e;
-    }
-    return ['rejected' => count($ids), 'ids' => $ids, 'reason' => $reason];
+    require_once __DIR__.'/../../time/lib/native_decisions.php';
+    return timeNativeDecisionCommit($userId,'weeks',$ids,'reject',null,$reason,false);
 }
 
 /** Empty headers are useful while a worker opens a week, but they must not

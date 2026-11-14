@@ -11,12 +11,12 @@ if (PHP_SAPI !== 'cli-server' || getenv('GITHUB_ACTIONS') !== 'true' || getenv('
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 if ($path === '/fixture-ready') { header('Content-Type: application/json'); echo '{"ready":true}'; exit; }
 if ($path === '/modules/time/api/entries.php') {
-    if(!in_array($_SERVER['REQUEST_METHOD'],['GET','POST','PATCH'],true) || !in_array($_GET['action']??'',['','bulk_create','correct','correction_review','entry_history','submit','bulk_submit','approve','reject','bulk_approve','bulk_reject'],true)) {http_response_code(404);exit;}
+    if(!in_array($_SERVER['REQUEST_METHOD'],['GET','POST','PATCH'],true) || !in_array($_GET['action']??'',['','bulk_create','correct','correction_review','entry_history','submit','bulk_submit','approve','reject','bulk_approve','bulk_reject','decision_review','decision_commit'],true)) {http_response_code(404);exit;}
     $script=dirname(__DIR__,2).$path;$_SERVER['SCRIPT_FILENAME']=$script;require $script;exit;
 }
 if ($path === '/modules/staffing/api/timesheets.php') {
     $actions=['GET'=>['list_for_placement','detail_for_placement','week','detail','list'],
-        'POST'=>['entry_save','entry_delete','reopen','bulk_save','entries_bulk_save','submit']];
+        'POST'=>['entry_save','entry_delete','reopen','bulk_save','entries_bulk_save','submit','decision_review','decision_commit','approve','reject','bulk_approve','bulk_reject']];
     if (!in_array($_GET['action']??'', $actions[$_SERVER['REQUEST_METHOD']]??[],true)) { http_response_code(404);exit; }
     $script=dirname(__DIR__,2).$path;$_SERVER['SCRIPT_FILENAME']=$script;require $script;exit;
 }

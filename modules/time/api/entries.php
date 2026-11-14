@@ -56,6 +56,23 @@ if ($method==='GET' && in_array($action,['correction_review','entry_history'],tr
     catch(Throwable $e){$failure=timeApiFailure($e);api_error($failure['message'],$failure['status']);}
 }
 
+// Native decisions always compare the exact selection returned to the review screen.
+if ($method==='POST' && in_array($action,['decision_review','decision_commit','approve','reject','bulk_approve','bulk_reject'],true)) {
+    require_once __DIR__.'/../lib/native_decisions.php';
+    $body=api_json_body();
+    $decision=in_array($action,['decision_review','decision_commit'],true)?(string)($body['decision']??''):(str_contains($action,'approve')?'approve':'reject');
+    if (!in_array($decision,['approve','reject'],true)) api_error('Choose approve or reject.',422);
+    api_require_legacy_permission($ctx,$decision==='approve'?'time.approve':'time.reject');
+    $ids=in_array($action,['approve','reject'],true)?[api_query('id',0)]:(is_array($body['ids']??null)?$body['ids']:[]);
+    header('Cache-Control: private, no-store');
+    try {
+        if ($action==='decision_review') api_ok(timeNativeDecisionReview((int)$user['id'],'entries',$ids,$decision));
+        $result=timeNativeDecisionCommit((int)$user['id'],'entries',$ids,$decision,is_string($body['review_revision']??null)?$body['review_revision']:null,(string)($body['reason']??''));
+        if (in_array($action,['approve','reject'],true)) $result['entry']=$result['entries'][0];
+        api_ok($result);
+    } catch(Throwable $e) {$failure=timeApiFailure($e);api_error($failure['message'],$failure['status']);}
+}
+
 // ─── Actions (POST) ───
 if ($method === 'POST' && $action !== '') {
     if ($action === 'bulk_create') {
@@ -81,71 +98,10 @@ if ($method === 'POST' && $action !== '') {
         api_ok(['ok' => true] + $result);
     }
 
-    if ($action === 'bulk_approve' || $action === 'bulk_reject') {
-        $body = api_json_body();
-        $ids = is_array($body['ids'] ?? null)
-            ? array_values(array_unique(array_filter(array_map('intval', $body['ids']), static fn ($id) => $id > 0)))
-            : [];
-        if (!$ids) api_error('ids[] required', 422);
-        if (count($ids) > 500) api_error('Too many ids (max 500 per call)', 422);
-
-        $isApprove = $action === 'bulk_approve';
-        if ($isApprove) {
-            api_require_legacy_permission($ctx, 'time.approve');
-        } else {
-            api_require_legacy_permission($ctx, 'time.reject');
-            if (trim((string) ($body['reason'] ?? '')) === '') api_error('reason required', 422);
-        }
-
-        $succeeded = 0;
-        $failed = 0;
-        $results = [];
-        foreach ($ids as $entryId) {
-            try {
-                if ($isApprove) {
-                    timeApproveEntry($entryId, $user, 'bulk_review');
-                } else {
-                    timeRejectEntry($entryId, $user, (string) $body['reason']);
-                }
-                $succeeded++;
-                $results[] = ['id' => $entryId, 'ok' => true];
-            } catch (\Throwable $e) {
-                $failed++;
-                $failure=timeApiFailure($e);
-                $results[] = ['id' => $entryId, 'ok' => false, 'reason' => $failure['message']];
-            }
-        }
-        api_ok([
-            'ok' => true,
-            'action' => $action,
-            'succeeded' => $succeeded,
-            'failed' => $failed,
-            'results' => $results,
-        ]);
-    }
-
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $entry = timeEntryGet($id);
     if (!$entry) api_error('Entry not found', 404);
-
-    if ($action === 'approve') {
-        api_require_legacy_permission($ctx, 'time.approve');
-        try {
-            $approvedEntry = timeApproveEntry($id, $user, 'manual');
-        } catch (Throwable $e) {$failure=timeApiFailure($e);api_error($failure['message'],$failure['status']);}
-        api_ok(['ok' => true, 'entry' => $approvedEntry]);
-    }
-
-    if ($action === 'reject') {
-        api_require_legacy_permission($ctx, 'time.reject');
-        $body = api_json_body();
-        api_require_fields($body, ['reason']);
-        try {
-            $rejectedEntry = timeRejectEntry($id, $user, (string) $body['reason']);
-        } catch (Throwable $e) {$failure=timeApiFailure($e);api_error($failure['message'],$failure['status']);}
-        api_ok(['ok' => true, 'entry' => $rejectedEntry]);
-    }
 
     if ($action === 'correct') {
         api_require_legacy_permission($ctx,'time.entry.manage');

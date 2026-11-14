@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import TokenIssueModal from './TokenIssueModal';
+import TimeDecisionReview from './TimeDecisionReview';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 
 /**
@@ -13,61 +14,27 @@ export default function ReviewQueue() {
   const { data, loading, error, reload } = useApi(path);
   const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
 
-  const [busy, setBusy] = useState(null);
+  const [decisionReview, setDecisionReview] = useState(null);
+  const busy = !!decisionReview;
   const [uiError, setUiError] = useState(null);
   const [selected, setSelected] = useState(new Set());
   const [issueFor, setIssueFor] = useState(null);
   const [toast, setToast] = useState(null);
 
-  const approve = async (id) => {
-    setBusy(id); setUiError(null);
-    try { await api.post(`/api/v1/time/entries?action=approve&id=${id}`, {}); reload(); }
-    catch (e) { setUiError(e); } finally { setBusy(null); }
-  };
-  const reject = async (id) => {
-    const reason = prompt('Reject reason (required):');
-    if (!reason) return;
-    setBusy(id); setUiError(null);
-    try { await api.post(`/api/v1/time/entries?action=reject&id=${id}`, { reason }); reload(); }
-    catch (e) { setUiError(e); } finally { setBusy(null); }
-  };
-
-  const runBulkAction = async (action, reason = null) => {
-    const ids = Array.from(selected).filter(id => rows.some(r => r.id === id));
-    if (ids.length === 0) return;
-    setBusy(action); setUiError(null); setToast(null);
-    try {
-      const res = await api.post(`/api/v1/time/entries?action=${action}`, {
-        ids,
-        ...(reason ? { reason } : {}),
-      });
-      const failedRows = (res.results || []).filter(r => !r.ok);
-      setSelected(new Set(failedRows.map(r => r.id)));
-      setToast({
-        kind: failedRows.length ? 'warn' : 'ok',
-        msg: failedRows.length
-          ? `${res.succeeded} completed; ${failedRows.length} need attention: ${failedRows.slice(0, 3).map(r => `#${r.id} ${r.reason}`).join(' | ')}`
-          : `${res.succeeded} ${action === 'bulk_approve' ? 'approved' : 'rejected'}.`,
-      });
-      reload();
-    } catch (e) {
-      setUiError(e);
-    } finally {
-      setBusy(null);
-    }
-  };
-
+  const approve = id => setDecisionReview({ ids: [id], decision: 'approve' });
+  const reject = id => setDecisionReview({ ids: [id], decision: 'reject' });
   const approveSelected = () => {
-    if (selected.size === 0) return;
-    if (!confirm(`Approve ${selected.size} selected time entr${selected.size === 1 ? 'y' : 'ies'}?`)) return;
-    runBulkAction('bulk_approve');
+    const ids = [...selected].filter(id => rows.some(row => row.id === id));
+    if (ids.length) setDecisionReview({ ids, decision: 'approve' });
   };
-
   const rejectSelected = () => {
-    if (selected.size === 0) return;
-    const reason = prompt(`Reason for rejecting ${selected.size} selected time entr${selected.size === 1 ? 'y' : 'ies'}:`);
-    if (!reason?.trim()) return;
-    runBulkAction('bulk_reject', reason.trim());
+    const ids = [...selected].filter(id => rows.some(row => row.id === id));
+    if (ids.length) setDecisionReview({ ids, decision: 'reject' });
+  };
+  const decided = result => {
+    setDecisionReview(null); setSelected(new Set()); setUiError(null);
+    setToast({ kind: 'ok', msg: `${result.succeeded} entries ${result.decision === 'approve' ? 'approved' : 'returned for correction'}.` });
+    reload();
   };
 
   const toggle = (id) => {
@@ -235,6 +202,7 @@ export default function ReviewQueue() {
         </div>
       ))}
 
+      {decisionReview && <TimeDecisionReview kind="entries" {...decisionReview} onClose={() => setDecisionReview(null)} onDecided={decided} />}
       {issueFor && (
         <TokenIssueModal
           entries={issueFor}

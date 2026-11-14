@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, CheckSquare2, CircleAlert, ExternalLink, Loader2, Mail, X } from 'lucide-react';
+import TimeDecisionReview from '../../time/ui/TimeDecisionReview';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
 function approvalBlocker(row) {
@@ -30,7 +31,8 @@ export default function StaffingApprovals() {
 
   const [selected, setSelected] = useState(() => new Set());
   const [busyId, setBusyId] = useState(null);
-  const [bulkBusy, setBulkBusy] = useState(false);
+  const [decisionReview, setDecisionReview] = useState(null);
+  const bulkBusy = !!decisionReview;
   const [rejecting, setRejecting] = useState(null);
   const [reason, setReason] = useState('');
   const [bulkRejecting, setBulkRejecting] = useState(false);
@@ -67,56 +69,16 @@ export default function StaffingApprovals() {
     });
   };
 
-  const act = async (action, row, extra = {}) => {
-    setBusyId(row.id);
-    setActionError('');
-    setNotice(null);
-    try {
-      await api.post(`/modules/staffing/api/timesheets.php?action=${action}`, {
-        person_id: row.person_id,
-        period_start: row.period_start,
-        period_end: row.period_end,
-        ...extra,
-      });
-      setNotice({ kind: 'success', text: action === 'approve' ? 'Timesheet approved.' : 'Timesheet returned for correction.' });
-      setRejecting(null);
-      setReason('');
-      reload();
-    } catch (requestError) {
-      setActionError(requestError?.message || String(requestError));
-    } finally {
-      setBusyId(null);
-    }
+  const act = (action, row, extra = {}) => {
+    setDecisionReview({ ids: [Number(row.id)], decision: action, reason: extra.reason || '' });
   };
-
-  const runBulk = async (action) => {
-    const ids = Array.from(selected);
-    if (ids.length === 0) return;
-    setBulkBusy(true);
-    setActionError('');
-    setNotice(null);
-    try {
-      const response = await api.post(`/modules/staffing/api/timesheets.php?action=${action}`, {
-        ids,
-        ...(action === 'bulk_reject' ? { reason: bulkReason.trim() } : {}),
-      });
-      const count = Number(response?.approved ?? response?.rejected ?? ids.length);
-      const postingWarnings = response?.posting_warnings?.length || 0;
-      setNotice({
-        kind: postingWarnings ? 'warning' : 'success',
-        text: action === 'bulk_approve'
-          ? `${count} ${count === 1 ? 'timesheet' : 'timesheets'} approved${postingWarnings ? `; ${postingWarnings} accounting post ${postingWarnings === 1 ? 'needs' : 'need'} review` : ''}.`
-          : `${count} ${count === 1 ? 'timesheet' : 'timesheets'} returned for correction.`,
-      });
-      setSelected(new Set());
-      setBulkRejecting(false);
-      setBulkReason('');
-      reload();
-    } catch (requestError) {
-      setActionError(requestError?.message || String(requestError));
-    } finally {
-      setBulkBusy(false);
-    }
+  const runBulk = action => {
+    if (selected.size) setDecisionReview({ ids: [...selected], decision: action === 'bulk_approve' ? 'approve' : 'reject', reason: bulkReason.trim() });
+  };
+  const decided = result => {
+    const warnings = result.posting_warnings?.length || 0;
+    setNotice({ kind: warnings ? 'warning' : 'success', text: `${result.succeeded} timesheets ${result.decision === 'approve' ? 'approved' : 'returned for correction'}${warnings ? '; accounting needs review' : ''}.` });
+    setDecisionReview(null); setSelected(new Set()); setRejecting(null); setReason(''); setBulkRejecting(false); setBulkReason(''); reload();
   };
 
   const sendApproverEmail = async (row) => {
@@ -459,6 +421,7 @@ export default function StaffingApprovals() {
           </tbody>
         </table>
       )}
+      {decisionReview && <TimeDecisionReview kind="weeks" {...decisionReview} onClose={() => setDecisionReview(null)} onDecided={decided} />}
     </section>
   );
 }

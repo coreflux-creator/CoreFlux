@@ -703,30 +703,31 @@ if ($method === 'POST' && $action === 'bulk_save') {
     }
 }
 
-if ($method === 'POST' && in_array($action, ['bulk_approve', 'bulk_reject'], true)) {
-    $body = api_json_body();
-    $ids = is_array($body['ids'] ?? null) ? $body['ids'] : [];
-    if ($action === 'bulk_approve') {
-        api_require_legacy_permission($ctx, 'staffing.time.approve');
-    } else {
-        api_require_legacy_permission($ctx, 'staffing.time.reject');
-    }
-
+if ($method==='POST' && in_array($action,['decision_review','decision_commit','approve','reject','bulk_approve','bulk_reject'],true)) {
+    require_once __DIR__.'/../../time/lib/native_decisions.php';
+    $body=api_json_body();
+    $decision=in_array($action,['decision_review','decision_commit'],true)?(string)($body['decision']??''):(str_contains($action,'approve')?'approve':'reject');
+    if (!in_array($decision,['approve','reject'],true)) api_error('Choose approve or reject.',422);
+    api_require_legacy_permission($ctx,$decision==='approve'?'staffing.time.approve':'staffing.time.reject');
+    header('Cache-Control: private, no-store');
     try {
-        if ($action === 'bulk_approve') {
-            api_ok(staffingTimesheetBulkApprove((int) ($user['id'] ?? 0), $ids));
+        $ids=is_array($body['ids']??null)?$body['ids']:[];
+        if (in_array($action,['approve','reject'],true)) {
+            $pid=(int)($body['person_id']??0);$ps=(string)($body['period_start']??'');$pe=(string)($body['period_end']??'');
+            staffingTimesheetValidateWeek($pid,$ps,$pe);$header=staffingTimesheetFind($pid,$ps);
+            if (!$header || $header['period_end']!==$pe) throw new RuntimeException('Timesheet not found',404);
+            $ids=[(int)$header['id']];
         }
-        api_ok(staffingTimesheetBulkReject(
-            (int) ($user['id'] ?? 0),
-            $ids,
-            (string) ($body['reason'] ?? '')
-        ));
-    } catch (\Throwable $e) {
-        api_error($e->getMessage(), 422);
-    }
+        if ($action==='decision_review') api_ok(timeNativeDecisionReview((int)$user['id'],'weeks',$ids,$decision));
+        $result=timeNativeDecisionCommit((int)$user['id'],'weeks',$ids,$decision,is_string($body['review_revision']??null)?$body['review_revision']:null,(string)($body['reason']??''));
+        if (in_array($action,['approve','reject'],true)) {
+            $snap=staffingTimesheetWeek($pid,$ps,$pe);$result['timesheet']=$snap['timesheet'];$result['entries']=$snap['entries'];
+        }
+        api_ok($result);
+    } catch(Throwable $e) {$failure=staffingApiTimeEditError($e,422);api_error($failure['message'],$failure['status']);}
 }
 
-if ($method === 'POST' && in_array($action, ['submit','approve','reject'], true)) {
+if ($method === 'POST' && $action === 'submit') {
     $body = api_json_body();
     $pid  = (int) ($body['person_id'] ?? 0);
     $ps   = (string) ($body['period_start'] ?? '');
@@ -740,21 +741,11 @@ if ($method === 'POST' && in_array($action, ['submit','approve','reject'], true)
             if (staffingApiCanPermission($ctx, 'staffing.time.submit') && timePersonIdForUser($user) === $person) return;
             throw new RuntimeException('You do not have permission to submit this worker’s time', 403);
         };
-    } elseif ($action === 'approve') {
-        api_require_legacy_permission($ctx, 'staffing.time.approve');
-    } else {
-        api_require_legacy_permission($ctx, 'staffing.time.reject');
     }
 
     try {
         if ($action === 'submit') {
             $snap = staffingTimesheetSubmit((int) ($user['id'] ?? 0), $pid, $ps, $pe, $authorizeSubmission);
-        } elseif ($action === 'approve') {
-            $snap = staffingTimesheetApprove((int) ($user['id'] ?? 0), $pid, $ps, $pe);
-        } else { // reject
-            $reason = trim((string) ($body['reason'] ?? ''));
-            if ($reason === '') api_error('reason required', 422);
-            $snap = staffingTimesheetReject((int) ($user['id'] ?? 0), $pid, $ps, $pe, $reason);
         }
         api_ok(['ok' => true, 'timesheet' => $snap['timesheet'], 'entries' => $snap['entries']]);
     } catch (\Throwable $e) {

@@ -158,7 +158,9 @@ try {
 
     [$status, $actor] = ciBusinessApi($curl, $base, 'GET', '/__ci__/session?actor=approver');
     ciBusinessExpect($status, 200, $actor, 'Switch to independent approver');
-    [$status, $approval] = ciBusinessApi($curl, $base, 'POST', '/modules/staffing/api/timesheets.php?action=bulk_approve', ['ids' => [$timesheetId]]);
+    [$status, $review] = ciBusinessApi($curl, $base, 'POST', '/modules/staffing/api/timesheets.php?action=decision_review', ['ids'=>[$timesheetId],'decision'=>'approve']);
+    ciBusinessExpect($status, 200, $review, 'Review imported timesheet');
+    [$status, $approval] = ciBusinessApi($curl, $base, 'POST', '/modules/staffing/api/timesheets.php?action=bulk_approve', ['ids' => [$timesheetId], 'review_revision'=>$review['revision']]);
     ciBusinessExpect($status, 200, $approval, 'Timesheet approval');
     if (($approval['approved'] ?? 0) !== 1 || !empty($approval['posting_warnings'])) {
         throw new RuntimeException('Imported timesheet was not approved and posted: ' . json_encode($approval));

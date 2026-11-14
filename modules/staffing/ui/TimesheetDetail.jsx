@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api, useApi, bustApiCachePrefix, getPinnedTenantId } from '../../../dashboard/src/lib/api';
+import TimeDecisionReview from '../../time/ui/TimeDecisionReview';
 import QuantaApprovalEvidence from '../../../dashboard/src/pages/QuantaApprovalEvidence';
 
 /**
@@ -138,6 +139,7 @@ export default function TimesheetDetail({ session }) {
     });
   };
 
+  const [decisionReview, setDecisionReview] = useState(null);
   const [busy, setBusy]           = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason]       = useState('');
@@ -217,6 +219,11 @@ export default function TimesheetDetail({ session }) {
 
   const act = async (action, extra = {}) => {
     if (isReadOnly) return;
+    if (action === 'approve' || action === 'reject') {
+      if (Object.values(edits).some(edit => Object.keys(edit).length)) { setActionError('Save or discard your time edits before opening the review.'); return; }
+      setDecisionReview({ ids: [Number(ts.id)], decision: action, reason: extra.reason || '' });
+      return;
+    }
     setBusy(true); setActionError(null);
     try {
       const result = await api.post(`/modules/staffing/api/timesheets.php?action=${action}`, {
@@ -763,6 +770,10 @@ export default function TimesheetDetail({ session }) {
           }}
         />
       )}
+      {decisionReview && <TimeDecisionReview kind="weeks" {...decisionReview} onClose={() => setDecisionReview(null)} onDecided={result => {
+        setDecisionReview(null); setRejecting(false); setReason('');
+        setActionError(result.posting_warnings?.length ? 'Time approved; its accounting result needs review.' : null); reload();
+      }} />}
     </section>
   );
 }

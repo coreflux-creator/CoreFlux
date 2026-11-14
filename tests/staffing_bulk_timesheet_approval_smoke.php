@@ -17,6 +17,7 @@ $read = static fn (string $path): string => (string) file_get_contents($path);
 
 $lib = $read(__DIR__ . '/../modules/staffing/lib/timesheets.php');
 $review = $read(__DIR__ . '/../modules/time/lib/native_review.php');
+$decisions = $read(__DIR__ . '/../modules/time/lib/native_decisions.php');
 $api = $read(__DIR__ . '/../modules/staffing/api/timesheets.php');
 $ui = $read(__DIR__ . '/../modules/staffing/ui/StaffingApprovals.jsx');
 
@@ -48,14 +49,15 @@ $assert('accounting events run only after the approval transaction commits',
     (bool) preg_match('/function staffingTimesheetBulkApprove.*?cf_tx_commit\(\$pdo, \$ownsTxn\).*?staffingEmitWorkerHoursApprovedEvent/s', $lib));
 $assert('bulk rejection is atomic and requires one reason',
     str_contains($lib, 'function staffingTimesheetBulkReject')
-    && str_contains($lib, 'A rejection reason is required.')
-    && str_contains($lib, "status = 'rejected', rejected_reason = :reason"));
+    && str_contains($lib, "timeNativeDecisionCommit(\$userId,'weeks',\$ids,'reject'")
+    && str_contains($decisions, 'Enter a rejection reason of 1 to 500 characters.')
+    && str_contains($decisions, 'timeNativeRejectRows($state[\'pending\']'));
 
 echo "\nAPI and readiness\n";
 $assert('API exposes bulk approve and reject actions',
-    str_contains($api, "['bulk_approve', 'bulk_reject']")
-    && str_contains($api, 'staffingTimesheetBulkApprove(')
-    && str_contains($api, 'staffingTimesheetBulkReject('));
+    str_contains($api, "'bulk_approve','bulk_reject'")
+    && str_contains($api, 'timeNativeDecisionCommit(')
+    && str_contains($api, "\$body['review_revision']"));
 $assert('bulk actions retain distinct approval and rejection permissions',
     (bool) preg_match("/bulk_approve.*?staffing\.time\.approve.*?staffing\.time\.reject/s", $api));
 $assert('approval queue reports self-review and rate blockers',

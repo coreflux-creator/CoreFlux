@@ -17,6 +17,7 @@ $timeReview = $read('modules/time/ui/ReviewQueue.jsx');
 $timeEntries = $read('modules/time/api/entries.php');
 $timeLib = $read('modules/time/lib/time.php');
 $timeSubmission = $read('modules/time/lib/native_submission.php');
+$timeDecisions = $read('modules/time/lib/native_decisions.php');
 $timeImport = $read('modules/time/api/csv_import.php');
 $timeExport = $read('modules/time/api/csv_export.php');
 $timeMyTime = $read('modules/time/ui/MyTime.jsx');
@@ -49,8 +50,8 @@ foreach (['Timesheets','Upload','Review','Settlement','Import time','Weekly peri
 }
 $assert('time module renders shared workflow navigation', str_contains($timeModule, '<TimeWorkspaceNav />'));
 $assert('legacy timesheet list renders the same workflow navigation', str_contains($timesheetsUi, '<TimeWorkspaceNav />'));
-$assert('review API supports bulk approval', str_contains($timeEntries, "\$action === 'bulk_approve'"));
-$assert('review API supports bulk rejection', str_contains($timeEntries, "\$action === 'bulk_reject'"));
+$assert('review API supports bulk approval', str_contains($timeEntries, "'bulk_approve'"));
+$assert('review API supports bulk rejection', str_contains($timeEntries, "'bulk_reject'"));
 $assert('weekly time submission uses one atomic bulk endpoint',
     str_contains($timeEntries, "\$action === 'bulk_submit'")
     && str_contains($timeLib, 'function timeSubmitEntries')
@@ -65,13 +66,14 @@ $assert('self-service time submission cannot submit another person\'s entries',
     str_contains($timeLib, 'function timePersonIdForUser')
     && str_contains($timeLib, 'You can only submit your own time entries')
     && str_contains($timeEntries, "timeApiCanPermission(\$ctx, 'time.entry.manage')"));
-$assert('bulk review caps requests at 500 entries', str_contains($timeEntries, 'Too many ids (max 500 per call)'));
+$assert('bulk review caps requests at 500 entries', str_contains($timeDecisions, 'Select between 1 and 500 records.'));
 $assert('single and bulk approval share one helper',
     str_contains($timeLib, 'function timeApproveEntry')
-    && substr_count($timeEntries, 'timeApproveEntry(') >= 2);
-$assert('bulk failures return row reasons',
-    str_contains($timeEntries, "'results' => \$results")
-    && str_contains($timeReview, 'failedRows.slice(0, 3)'));
+    && str_contains($timeEntries, 'timeNativeDecisionCommit(')
+    && str_contains($timeDecisions, 'timeApproveEntry('));
+$assert('a changed review refuses the complete batch before decisions',
+    str_contains($timeDecisions, 'The reviewed time, assignment or rates changed.')
+    && str_contains($timeReview, '<TimeDecisionReview'));
 $assert('review UI can select all and approve or reject selected entries',
     str_contains($timeReview, 'data-testid="time-review-select-all"')
     && str_contains($timeReview, 'data-testid="time-review-approve-selected"')

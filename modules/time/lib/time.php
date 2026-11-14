@@ -336,45 +336,12 @@ function timeApproveEntry(int $id, array $user, string $approvedVia = 'manual'):
 
 function timeRejectEntry(int $id, array $user, string $reason): array
 {
-    $reason = trim($reason);
-    if ($reason === '') throw new \RuntimeException('Reject reason is required', 422);
-    $entry = timeEntryGet($id);
-    if (!$entry) throw new \RuntimeException("Entry {$id} not found", 404);
-    if ($entry['status'] !== 'pending_review') {
-        throw new \RuntimeException("Only pending_review entries can be rejected; entry {$id} is {$entry['status']}", 409);
-    }
-    require_once __DIR__ . '/../../../core/tx_helpers.php';
-    $pdo = getDB();
-    $ownsTxn = cf_tx_begin($pdo);
-    $savepoint = 'time_reject_' . bin2hex(random_bytes(6));
-    if (!$ownsTxn) $pdo->exec('SAVEPOINT ' . $savepoint);
-    try {
-        $current = staffingTimeFind(
-            'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id FOR UPDATE',
-            ['id' => $id]
-        );
-        if ($current !== $entry) throw new \RuntimeException('The time entry changed during rejection. Refresh and review it again.', 409);
-        staffingTimeUpdate('time_entries', $id, [
-            'status' => 'rejected',
-            'rejected_reason' => $reason,
-        ]);
-        timeReconcileTimesheetHeader((int) ($entry['timesheet_id'] ?? 0), $user['id'] ?? null);
-        if (!$ownsTxn) $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
-        cf_tx_commit($pdo, $ownsTxn);
-    } catch (\Throwable $e) {
-        if (!$ownsTxn && $pdo->inTransaction()) {
-            $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
-            $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
-        }
-        cf_tx_rollback($pdo, $ownsTxn);
-        throw $e;
-    }
-    timeAudit('time.entry.rejected', [
-        'entry_id' => $id,
-        'reason' => $reason,
-        'rejected_by_user_id' => $user['id'] ?? null,
-    ], $id);
-    return timeEntryGet($id) ?? $entry;
+    require_once __DIR__.'/native_decisions.php';
+    return StaffingNativeTimeEdit::run(static function()use($id,$user,$reason):array {
+        $entry=timeEntryGet($id);
+        if (!$entry) throw new RuntimeException("Entry {$id} not found",404);
+        return timeNativeRejectRows([$entry],(int)($user['id']??0),$reason)[0];
+    });
 }
 
 function timeEntriesList(array $filters = []): array

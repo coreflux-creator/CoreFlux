@@ -3,6 +3,15 @@
 (static function()use($pdo,$tenant,$actor,$request,$expect,$snapshot,$financialTables,$graphTables):void {
     require_once __DIR__.'/../../modules/time/lib/native_review.php';
     $workspace=900021;$member=null;$api='/modules/time/api/entries.php?action=approve&id=';
+    $nativeRequest=$request;
+    $request=static function($method,$path,$body=null,$authenticated=true,$scope=null)use($nativeRequest):array {
+        if ($method==='POST' && preg_match('/\/modules\/time\/api\/entries\.php\?action=approve&id=(\d+)$/D',$path,$match)) {
+            [$status,$review]=$nativeRequest('POST','/modules/time/api/entries.php?action=decision_review',['ids'=>[(int)$match[1]],'decision'=>'approve'],$authenticated,$scope);
+            if ($status!==200) return [$status,$review];
+            $body=['review_revision'=>$review['revision']]+($body??[]);
+        }
+        return $nativeRequest($method,$path,$body,$authenticated,$scope);
+    };
     $insert=static function(string $table,array $row)use($pdo):int {$pdo->prepare('INSERT INTO '.$table.' (`'.implode('`,`',array_keys($row)).'`) VALUES('.implode(',',array_fill(0,count($row),'?')).')')->execute(array_values($row));return (int)$pdo->lastInsertId();};
     $read=static function(string $table,int $id)use($pdo):array {$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return $q->fetch(PDO::FETCH_ASSOC);};
     $tables=array_values(array_unique([...$graphTables,...$financialTables,'time_entries','time_periods','staffing_timesheets','artifact_objects','artifact_events','artifact_relationships','audit_log','core_record_numbers']));
@@ -80,6 +89,7 @@
         $expect($done['status']==='approved'&&$done['approved_by_user_id']===null&&$done['client_approver_email']===$external['external_approver_email']&&$header['status']==='approved','External weekly approval retains its actual email actor and original workspace');
         $expect(currentTenantId()===$scopeBefore&&$read('time_entries',$ids[0])===$frozen,'Explicit weekly approval restores the caller scope and retains the independently approved sibling');
         $expect($snapshot($financialTables)===$financialBefore,'Entry and weekly approval services create no financial events, journals, payments or payroll runs');
+        require __DIR__.'/time_decision_review_http_checks.php';
     } finally {
         $pdo->exec('DROP TRIGGER IF EXISTS cf_http_approval_receipt');
         if($member){$pdo->prepare('DELETE FROM membership_module_access WHERE membership_id=?')->execute([$member]);deactivateMembership($actor,$workspace);}
