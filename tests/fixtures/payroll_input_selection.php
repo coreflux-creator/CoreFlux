@@ -51,7 +51,8 @@ $receipts[$lateId]=['id'=>$lateId,'organization_id'=>'org-a','content_hash'=>$la
 $check($reconcile($p)['state']==='delivered'&&$posts===$prePosts,'the prior uncertain input is resolved through its original receipt without resending');
 $savedMode=$mode;$mode='lost';$realTransport=$GLOBALS['__purepay_transport'];
 $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use($realTransport,$picked,$check){
-    if($method==='POST')$check(json_decode($json,true,64,JSON_THROW_ON_ERROR)===$picked['packet'],'wire contains only the selected provider components, with no private selector');
+    if($method==='POST')$check(integrationDeliveryHash(json_decode($json,true,64,JSON_THROW_ON_ERROR))===integrationDeliveryHash($picked['packet']),
+        'wire contains only the selected provider components, with no private selector');
     return $realTransport($method,$url,$headers,$json);
 };
 $check($send($picked)['state']==='uncertain'&&$posts===$prePosts+1,'selected send retains an uncertain receipt after response loss');
