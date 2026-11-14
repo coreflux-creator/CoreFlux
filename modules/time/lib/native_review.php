@@ -48,6 +48,23 @@ function timeNativeApprovalSnapshot(array $entry, ?int $actor): array
         ]))];
 }
 
+/** Completing a week also preserves and verifies its already approved siblings. */
+function timeNativeApprovalSourceIds(array $entries,?int $actor): array
+{
+    if (!StaffingNativeTimeEdit::active()) throw new LogicException('A protected approval transaction is required.');
+    $selected=array_map('intval',array_column($entries,'id'));$sourceIds=$selected;$headers=[];
+    foreach($entries as$entry) if(!empty($entry['timesheet_id'])) $headers[(int)$entry['timesheet_id']]=true;
+    foreach(array_keys($headers)as$id) {
+        $siblings=staffingTimeQuery('SELECT * FROM time_entries WHERE tenant_id=:tenant_id AND timesheet_id=:id AND status!="superseded" ORDER BY id',['id'=>$id]);
+        if (array_filter($siblings,static fn($row)=>$row['status']!=='approved' && !in_array((int)$row['id'],$selected,true))) continue;
+        $header=staffingTimesheetRow(staffingTimeWorkspace(),$id,true);
+        if (!$header) throw new RuntimeException('The original week is unavailable.',409);
+        staffingTimesheetApprovalPlan($actor,$header,staffingTimeWorkspace());
+        $sourceIds=[...$sourceIds,...array_map('intval',array_column($siblings,'id'))];
+    }
+    $sourceIds=array_values(array_unique($sourceIds));sort($sourceIds,SORT_NUMERIC);return $sourceIds;
+}
+
 function timeNativeExternalReviewer(array $entry, string $email): void
 {
     if (!StaffingNativeTimeEdit::active()) throw new LogicException('An external review requires a protected transaction.');

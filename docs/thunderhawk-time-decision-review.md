@@ -1,0 +1,25 @@
+# Reviewed native time decisions
+
+This source change binds native approval and rejection to the current selection displayed to a reviewer. It is for the isolated Thunderhawk pilot and has not been installed. Production, provider runtimes and the separate Arabella accounting pilot are unchanged.
+
+## Behavior
+
+- The generic time review queue, staffing approval queue and weekly detail screen share a review dialog. It displays permanent person and placement numbers, worker and assignment names, work dates, hours, type, description, source and the proposed decision. Prior approved weekly entries remain visible and are explicitly retained. The response does not expose raw bill or pay rates.
+- Review and confirmation are separate authenticated requests. The original workspace, actor, decision, complete selection, entries, weekly context, identities and resolved approval evidence form a comparison revision. Approval also includes the current rate fingerprint and accounting dimensions. Current source, directory, period and downstream-history guards run under the protected transaction.
+- Every public native approve/reject route, including older single and bulk action names, requires the reviewed revision. Missing revisions, changed hours/rates/identities, changed weekly membership, partial selections and opposite decisions refuse without writes. Invalid IDs are refused rather than silently dropped. A bulk native decision now commits the complete selection atomically instead of reporting partial per-row approval.
+- Rejection uses the protected original-workspace service, validates its pending rows, records a 1–500 character reason and actual reviewer, reconciles headers and artifacts, and requires row, header and final decision receipts. It does not require an approved rate or complete accounting dimensions merely to return time for correction. Already approved siblings and imported source values are retained. A failure at a late receipt restores the full batch.
+- The dialog discards late responses for a changed selection, conceals a mismatched workspace, prevents duplicate confirmation and requires another displayed review after a refused or uncertain response. It supports Escape, contained keyboard focus and return to the originating control. Unsaved detail-screen edits must be saved or discarded before opening review.
+
+## Validation status
+
+Exact source `947ce2ee` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43545405891): **824 independent-connection checks**, including **49 reviewed-decision checks**; **953 native-session checks**; and **796 native HTTP checks**, including **24 reviewed-decision checks**. Temporary actor, server and private-session cleanup passed. [Pinned evidence](../deploy/thunderhawk-time-decision-review-preparation-20261113.json). This source is not installed.
+
+Locally, 63 related rendered cases, the relevant source checks, PHP syntax and the 6,135-module frontend build passed. CI found obsolete static-check locations, a completed-header fixture that attempted ordinary rejection, an added test row missing its category and a missing companion bundle. The checks now follow the shared services; the fixture proves refusal on a completed header before testing rejection on a submitted header; the new entry and recursive release assets are complete. Only the successful exact-source run above is acceptance evidence.
+
+New native HTTP checks exercise authorization, read-only review, permanent-number display, required revisions, selection/decision binding, changed time/rate/worker facts, complete rollback on final approval receipt failure, changed weekly membership and rejection receipt failure, explicit reasons, retained prior approval and repeat refusal. Independent connections test committed and rolled-back hours, worker names, periods and assignment-title changes against previously displayed entry approvals, entry rejections and weekly rejections. The existing disposable CSV-to-invoice workflow now obtains a reviewed week revision before approval.
+
+## Remaining integration work
+
+Generic public client approval tokens and their issued entry sets, weekly email-token review/consumption, and preapproved CSV still require alignment; this native dialog does not establish acceptance of those separate routes. Internal services remain callable by already-authorized orchestration without a browser revision. The existing weekly post-approval accounting emission remains best-effort; durable result handoff and nested-caller posting behavior still need work. Recorded rate fingerprints need downstream enforcement, and complete financial reversal/replacement and older aggregate provenance remain open.
+
+Required ownership/field semantics, category/period/setup/CSV behavior, AP/current references, stable outbound customer identity, migrations, guarded full pilot installation and the signed-in complete provider round trip are still required. The full integration goal remains active and incomplete.

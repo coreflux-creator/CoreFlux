@@ -76,8 +76,9 @@ function timeClientTokenState(array $row,string $decision): array
     if (!is_array($basis) || ($basis['version']??null)!==1 || !is_array($basis['entry_ids']??null) || !is_string($basis['issued_hash']??null)) throw new RuntimeException('This older link has no verified issued selection. Request a new approval link.',409);
     $state=timeClientTokenSelection((int)$row['placement_id'],(int)$row['period_id'],$basis['entry_ids']);
     if (!hash_equals($basis['issued_hash'],$state['issuedHash']) || $row['client_approver_email']!==$state['email']) throw new RuntimeException('The issued time or assignment has changed. Request a new approval link.',409);
-    $plans=[];
+    $plans=[];$sourceIds=$state['ids'];
     if ($decision==='approve') foreach($state['entries'] as$id=>$entry) $plans[$id]=timeNativeApprovalSnapshot($entry,null);
+    if ($decision==='approve') $sourceIds=timeNativeApprovalSourceIds(array_values($state['entries']),null);
     $revision=hash('sha256',staffingDimensionSnapshotCanonicalJson([
         'token_id'=>(int)$row['id'],'workspace'=>staffingTimeWorkspace(),'decision'=>$decision,'expires'=>$row['expires_at'],
         'issued_hash'=>$state['issuedHash'],'email'=>$state['email'],'plans'=>$plans,'headers'=>$state['headers'],'siblings'=>$state['siblings'],
@@ -86,7 +87,7 @@ function timeClientTokenState(array $row,string $decision): array
     foreach($state['entries'] as$entry) $view[]=array_intersect_key($entry,array_flip(['id','work_date','hours','category','hour_type','description','source','source_system','source_ref_id']))+[
         'person_number'=>$state['person']['person_number'],'placement_number'=>$state['placement']['placement_number'],
     ];
-    return $state+['plans'=>$plans,'public'=>[
+    return $state+['plans'=>$plans,'source_ids'=>$sourceIds,'public'=>[
         'status'=>'pending','workspace_id'=>staffingTimeWorkspace(),'decision'=>$decision,'revision'=>$revision,'expires_at'=>$row['expires_at'],
         'total_hours'=>round(array_sum(array_column($state['entries'],'hours')),2),'client_approver_email'=>$state['email'],'entries'=>$view,
         'placement'=>array_intersect_key($state['placement'],array_flip(['id','title','end_client_name','placement_number']))+[
@@ -115,9 +116,9 @@ function timeClientTokenRespond(string $raw,string $decision,?string $revision,s
         $context=['token_id'=>(int)$row['id'],'client_approver_email'=>$state['email'],'ip_address'=>$ip];
         if ($decision==='approve') {
             require_once __DIR__.'/../../../core/quanta/time_current.php';
-            quantaTimeAssertCurrent(getDB(),staffingTimeWorkspace(),$state['ids']);
+            $sourceCheck=quantaTimeAssertCurrent(getDB(),staffingTimeWorkspace(),$state['source_ids']);
             if (!hash_equals(timeClientTokenState($row,$decision)['public']['revision'],$revision)) throw new RuntimeException('Time changed during source verification. Reload the review.',409);
-            foreach($state['entries'] as$id=>$entry) timeNativeWriteApproval($entry,$state['plans'][$id],null,'tokenized_client_email',$context);
+            foreach($state['entries'] as$id=>$entry) timeNativeWriteApproval($entry,$state['plans'][$id],null,'tokenized_client_email',$context+['quanta_source_check'=>$sourceCheck?:null]);
             foreach($state['headers'] as$id=>$header) {
                 timeReconcileTimesheetHeader($id,null);
                 $meta=$context+['entry_ids'=>$state['ids']];

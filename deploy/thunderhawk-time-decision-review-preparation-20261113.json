@@ -1,0 +1,195 @@
+{
+  "candidate_commit": "947ce2ee6c7f55b5976b7404720e253a6bbe3fb0",
+  "ci": {
+    "run_id": 43545405891,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43545405891",
+    "jobs": [
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "concurrency": {
+    "checks": 824,
+    "native_decision_cases": [
+      "Reviewed decision waits for entries approve hours COMMIT",
+      "Committed hours refuses reviewed entries approve without writes: {\"ok\":false,\"code\":409,\"error\":\"The reviewed time, assignment or rates changed. Reload and review the complete selection.\"}",
+      "Reviewed decision waits for entries approve worker_name COMMIT",
+      "Committed worker_name refuses reviewed entries approve without writes: {\"ok\":false,\"code\":409,\"error\":\"The reviewed time, assignment or rates changed. Reload and review the complete selection.\"}",
+      "Reviewed decision waits for entries approve period COMMIT",
+      "Committed period refuses reviewed entries approve without writes: {\"ok\":false,\"code\":409,\"error\":\"The original time period is locked, closed or unavailable. Review its correction workflow.\"}",
+      "Reviewed decision waits for entries approve placement_title COMMIT",
+      "Committed placement_title refuses reviewed entries approve without writes: {\"ok\":false,\"code\":409,\"error\":\"The reviewed time, assignment or rates changed. Reload and review the complete selection.\"}",
+      "Reviewed decision waits for entries approve hours ROLLBACK",
+      "Rolled-back hours permits reviewed entries approve: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"workspace_id\":990671,\"kind\":\"entries\",\"decision\":\"approve\",\"ids\":[128],\"entries\":[{\"id\":128,\"tenant_id\":990671,\"placement_id\":385,\"person_id\":321,\"period_id\":1,\"timesheet_id\":111,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"8.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"approved\",\"rate_snapshot_id\":261,\"dimension_snapshot_json\":\"{\\\"dimensions\\\":{\\\"client\\\":522,\\\"legal_entity\\\":3,\\\"placement\\\":385,\\\"service_line\\\":\\\"contract_staffing\\\",\\\"wc_class\\\":\\\"synthetic-class\\\",\\\"work_state\\\":\\\"NJ\\\",\\\"worker\\\":321},\\\"engagement_type\\\":\\\"w2\\\",\\\"event_entity_id\\\":3,\\\"missing\\\":[\\\"job\\\",\\\"recruiter\\\",\\\"account_manager\\\",\\\"branch\\\"],\\\"referral_fee_per_hour\\\":null,\\\"source_rate_hash\\\":\\\"c220a5d084049a3cbf631d6c6ba6917b71943438f766400020103750f0981c54\\\",\\\"vendor_ap_id\\\":null,\\\"vendor_company_id\\\":null,\\\"vendor_dimension\\\":null,\\\"vendor_economic_party_id\\\":null}\",\"dimension_snapshot_hash\":\"ded25ac5d090f30e013aae8aaf09e45335370ffb9084481af13b2ec6cf2e44ed\",\"approved_by_user_id\":5,\"approved_at\":\"2026-11-14 02:19:58\",\"approved_via\":\"manual\",\"client_approver_email\":null,\"rejected_reason\":null,\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-14 02:19:57\",\"updated_at\":\"2026-11-14 02:19:58\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null}],\"succeeded\":1,\"failed\":0,\"results\":[{\"id\":128,\"ok\":true}],\"approved\":1,\"posting_warnings\":[]}}",
+      "Reviewed decision waits for entries approve worker_name ROLLBACK",
+      "Rolled-back worker_name permits reviewed entries approve: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"workspace_id\":990671,\"kind\":\"entries\",\"decision\":\"approve\",\"ids\":[129],\"entries\":[{\"id\":129,\"tenant_id\":990671,\"placement_id\":386,\"person_id\":322,\"period_id\":1,\"timesheet_id\":112,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"8.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"approved\",\"rate_snapshot_id\":262,\"dimension_snapshot_json\":\"{\\\"dimensions\\\":{\\\"client\\\":522,\\\"legal_entity\\\":3,\\\"placement\\\":386,\\\"service_line\\\":\\\"contract_staffing\\\",\\\"wc_class\\\":\\\"synthetic-class\\\",\\\"work_state\\\":\\\"NJ\\\",\\\"worker\\\":322},\\\"engagement_type\\\":\\\"w2\\\",\\\"event_entity_id\\\":3,\\\"missing\\\":[\\\"job\\\",\\\"recruiter\\\",\\\"account_manager\\\",\\\"branch\\\"],\\\"referral_fee_per_hour\\\":null,\\\"source_rate_hash\\\":\\\"9a6ba462c19b82fb3b9031259251cd800665265425f6ae821352919c37aa5d0c\\\",\\\"vendor_ap_id\\\":null,\\\"vendor_company_id\\\":null,\\\"vendor_dimension\\\":null,\\\"vendor_economic_party_id\\\":null}\",\"dimension_snapshot_hash\":\"c82a3b39b40bb0056872593719ca6a6761a27efe6bccf381165f256f11ba5d19\",\"approved_by_user_id\":5,\"approved_at\":\"2026-11-14 02:19:58\",\"approved_via\":\"manual\",\"client_approver_email\":null,\"rejected_reason\":null,\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-14 02:19:58\",\"updated_at\":\"2026-11-14 02:19:58\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null}],\"succeeded\":1,\"failed\":0,\"results\":[{\"id\":129,\"ok\":true}],\"approved\":1,\"posting_warnings\":[]}}",
+      "Reviewed decision waits for entries approve period ROLLBACK",
+      "Rolled-back period permits reviewed entries approve: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"workspace_id\":990671,\"kind\":\"entries\",\"decision\":\"approve\",\"ids\":[130],\"entries\":[{\"id\":130,\"tenant_id\":990671,\"placement_id\":387,\"person_id\":323,\"period_id\":1,\"timesheet_id\":113,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"8.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"approved\",\"rate_snapshot_id\":263,\"dimension_snapshot_json\":\"{\\\"dimensions\\\":{\\\"client\\\":522,\\\"legal_entity\\\":3,\\\"placement\\\":387,\\\"service_line\\\":\\\"contract_staffing\\\",\\\"wc_class\\\":\\\"synthetic-class\\\",\\\"work_state\\\":\\\"NJ\\\",\\\"worker\\\":323},\\\"engagement_type\\\":\\\"w2\\\",\\\"event_entity_id\\\":3,\\\"missing\\\":[\\\"job\\\",\\\"recruiter\\\",\\\"account_manager\\\",\\\"branch\\\"],\\\"referral_fee_per_hour\\\":null,\\\"source_rate_hash\\\":\\\"6c6da1d590144b22634219207bf426dd62d565802bd5c760a1cc867f1e80c8cb\\\",\\\"vendor_ap_id\\\":null,\\\"vendor_company_id\\\":null,\\\"vendor_dimension\\\":null,\\\"vendor_economic_party_id\\\":null}\",\"dimension_snapshot_hash\":\"05ae3c170c262fdb0095bd1dcffdaf74f3de6a995d6a475f58c229403fc5d1e5\",\"approved_by_user_id\":5,\"approved_at\":\"2026-11-14 02:19:58\",\"approved_via\":\"manual\",\"client_approver_email\":null,\"rejected_reason\":null,\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-14 02:19:58\",\"updated_at\":\"2026-11-14 02:19:58\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null}],\"succeeded\":1,\"failed\":0,\"results\":[{\"id\":130,\"ok\":true}],\"approved\":1,\"posting_warnings\":[]}}",
+      "Reviewed decision waits for entries approve placement_title ROLLBACK",
+      "Rolled-back placement_title permits reviewed entries approve: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"workspace_id\":990671,\"kind\":\"entries\",\"decision\":\"approve\",\"ids\":[131],\"entries\":[{\"id\":131,\"tenant_id\":990671,\"placement_id\":388,\"person_id\":324,\"period_id\":1,\"timesheet_id\":114,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"8.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"approved\",\"rate_snapshot_id\":264,\"dimension_snapshot_json\":\"{\\\"dimensions\\\":{\\\"client\\\":522,\\\"legal_entity\\\":3,\\\"placement\\\":388,\\\"service_line\\\":\\\"contract_staffing\\\",\\\"wc_class\\\":\\\"synthetic-class\\\",\\\"work_state\\\":\\\"NJ\\\",\\\"worker\\\":324},\\\"engagement_type\\\":\\\"w2\\\",\\\"event_entity_id\\\":3,\\\"missing\\\":[\\\"job\\\",\\\"recruiter\\\",\\\"account_manager\\\",\\\"branch\\\"],\\\"referral_fee_per_hour\\\":null,\\\"source_rate_hash\\\":\\\"608632aa048b9c340dcaafdebc7667718bca9a70aaeb032bfc404cfba9e97851\\\",\\\"vendor_ap_id\\\":null,\\\"vendor_company_id\\\":null,\\\"vendor_dimension\\\":null,\\\"vendor_economic_party_id\\\":null}\",\"dimension_snapshot_hash\":\"41fb9743ccc11aa41c4d213b125cfc723ca80601037e97f0707ef49294befcaf\",\"approved_by_user_id\":5,\"approved_at\":\"2026-11-14 02:19:58\",\"approved_via\":\"manual\",\"client_approver_email\":null,\"rejected_reason\":null,\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-14 02:19:58\",\"updated_at\":\"2026-11-14 02:19:58\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null}],\"succeeded\":1,\"failed\":0,\"results\":[{\"id\":131,\"ok\":true}],\"approved\":1,\"posting_warnings\":[]}}",
+      "Reviewed decision waits for entries reject hours COMMIT",
+      "Committed hours refuses reviewed entries reject without writes: {\"ok\":false,\"code\":409,\"error\":\"The reviewed time, assignment or rates changed. Reload and review the complete selection.\"}",
+      "Reviewed decision waits for entries reject worker_name COMMIT",
+      "Committed worker_name refuses reviewed entries reject without writes: {\"ok\":false,\"code\":409,\"error\":\"The reviewed time, assignment or rates changed. Reload and review the complete selection.\"}",
+      "Reviewed decision waits for entries reject period COMMIT",
+      "Committed period refuses reviewed entries reject without writes: {\"ok\":false,\"code\":409,\"error\":\"The original time period is locked, closed or unavailable. Review its correction workflow.\"}",
+      "Reviewed decision waits for entries reject placement_title COMMIT",
+      "Committed placement_title refuses reviewed entries reject without writes: {\"ok\":false,\"code\":409,\"error\":\"The reviewed time, assignment or rates changed. Reload and review the complete selection.\"}",
+      "Reviewed decision waits for entries reject hours ROLLBACK",
+      "Rolled-back hours permits reviewed entries reject: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"workspace_id\":990671,\"kind\":\"entries\",\"decision\":\"reject\",\"ids\":[136],\"entries\":[{\"id\":136,\"tenant_id\":990671,\"placement_id\":393,\"person_id\":329,\"period_id\":1,\"timesheet_id\":119,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"8.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"rejected\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":\"Synthetic reviewed correction\",\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-14 02:20:00\",\"updated_at\":\"2026-11-14 02:20:00\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null}],\"succeeded\":1,\"failed\":0,\"results\":[{\"id\":136,\"ok\":true}],\"rejected\":1,\"posting_warnings\":[]}}",
+      "Reviewed decision waits for entries reject worker_name ROLLBACK",
+      "Rolled-back worker_name permits reviewed entries reject: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"workspace_id\":990671,\"kind\":\"entries\",\"decision\":\"reject\",\"ids\":[137],\"entries\":[{\"id\":137,\"tenant_id\":990671,\"placement_id\":394,\"person_id\":330,\"period_id\":1,\"timesheet_id\":120,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"8.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"rejected\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":\"Synthetic reviewed correction\",\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-14 02:20:00\",\"updated_at\":\"2026-11-14 02:20:00\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null}],\"succeeded\":1,\"failed\":0,\"results\":[{\"id\":137,\"ok\":true}],\"rejected\":1,\"posting_warnings\":[]}}",
+      "Reviewed decision waits for entries reject period ROLLBACK",
+      "Rolled-back period permits reviewed entries reject: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"workspace_id\":990671,\"kind\":\"entries\",\"decision\":\"reject\",\"ids\":[138],\"entries\":[{\"id\":138,\"tenant_id\":990671,\"placement_id\":395,\"person_id\":331,\"period_id\":1,\"timesheet_id\":121,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"8.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"rejected\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":\"Synthetic reviewed correction\",\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-14 02:20:00\",\"updated_at\":\"2026-11-14 02:20:01\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null}],\"succeeded\":1,\"failed\":0,\"results\":[{\"id\":138,\"ok\":true}],\"rejected\":1,\"posting_warnings\":[]}}",
+      "Reviewed decision waits for entries reject placement_title ROLLBACK",
+      "Rolled-back placement_title permits reviewed entries reject: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"workspace_id\":990671,\"kind\":\"entries\",\"decision\":\"reject\",\"ids\":[139],\"entries\":[{\"id\":139,\"tenant_id\":990671,\"placement_id\":396,\"person_id\":332,\"period_id\":1,\"timesheet_id\":122,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"8.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"rejected\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":\"Synthetic reviewed correction\",\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-14 02:20:01\",\"updated_at\":\"2026-11-14 02:20:01\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null}],\"succeeded\":1,\"failed\":0,\"results\":[{\"id\":139,\"ok\":true}],\"rejected\":1,\"posting_warnings\":[]}}",
+      "Reviewed decision waits for weeks reject hours COMMIT",
+      "Committed hours refuses reviewed weeks reject without writes: {\"ok\":false,\"code\":409,\"error\":\"The reviewed time, assignment or rates changed. Reload and review the complete selection.\"}",
+      "Reviewed decision waits for weeks reject worker_name COMMIT",
+      "Committed worker_name refuses reviewed weeks reject without writes: {\"ok\":false,\"code\":409,\"error\":\"The reviewed time, assignment or rates changed. Reload and review the complete selection.\"}",
+      "Reviewed decision waits for weeks reject period COMMIT",
+      "Committed period refuses reviewed weeks reject without writes: {\"ok\":false,\"code\":409,\"error\":\"The original time period is locked, closed or unavailable. Review its correction workflow.\"}",
+      "Reviewed decision waits for weeks reject placement_title COMMIT",
+      "Committed placement_title refuses reviewed weeks reject without writes: {\"ok\":false,\"code\":409,\"error\":\"The reviewed time, assignment or rates changed. Reload and review the complete selection.\"}",
+      "Reviewed decision waits for weeks reject hours ROLLBACK",
+      "Rolled-back hours permits reviewed weeks reject: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"workspace_id\":990671,\"kind\":\"weeks\",\"decision\":\"reject\",\"ids\":[127],\"entries\":[{\"id\":144,\"tenant_id\":990671,\"placement_id\":401,\"person_id\":337,\"period_id\":1,\"timesheet_id\":127,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"8.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"rejected\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":\"Synthetic reviewed correction\",\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-14 02:20:02\",\"updated_at\":\"2026-11-14 02:20:03\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null}],\"succeeded\":1,\"failed\":0,\"results\":[{\"id\":127,\"ok\":true}],\"rejected\":1,\"posting_warnings\":[]}}",
+      "Reviewed decision waits for weeks reject worker_name ROLLBACK",
+      "Rolled-back worker_name permits reviewed weeks reject: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"workspace_id\":990671,\"kind\":\"weeks\",\"decision\":\"reject\",\"ids\":[128],\"entries\":[{\"id\":145,\"tenant_id\":990671,\"placement_id\":402,\"person_id\":338,\"period_id\":1,\"timesheet_id\":128,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"8.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"rejected\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":\"Synthetic reviewed correction\",\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-14 02:20:03\",\"updated_at\":\"2026-11-14 02:20:03\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null}],\"succeeded\":1,\"failed\":0,\"results\":[{\"id\":128,\"ok\":true}],\"rejected\":1,\"posting_warnings\":[]}}",
+      "Reviewed decision waits for weeks reject period ROLLBACK",
+      "Rolled-back period permits reviewed weeks reject: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"workspace_id\":990671,\"kind\":\"weeks\",\"decision\":\"reject\",\"ids\":[129],\"entries\":[{\"id\":146,\"tenant_id\":990671,\"placement_id\":403,\"person_id\":339,\"period_id\":1,\"timesheet_id\":129,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"8.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"rejected\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":\"Synthetic reviewed correction\",\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-14 02:20:03\",\"updated_at\":\"2026-11-14 02:20:03\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null}],\"succeeded\":1,\"failed\":0,\"results\":[{\"id\":129,\"ok\":true}],\"rejected\":1,\"posting_warnings\":[]}}",
+      "Reviewed decision waits for weeks reject placement_title ROLLBACK",
+      "Rolled-back placement_title permits reviewed weeks reject: {\"ok\":true,\"result\":{\"id\":null,\"ok\":true,\"workspace_id\":990671,\"kind\":\"weeks\",\"decision\":\"reject\",\"ids\":[130],\"entries\":[{\"id\":147,\"tenant_id\":990671,\"placement_id\":404,\"person_id\":340,\"period_id\":1,\"timesheet_id\":130,\"work_date\":\"2026-10-05\",\"external_id\":null,\"source_system\":\"manual\",\"category\":\"regular_billable\",\"hour_type\":\"regular\",\"billable\":1,\"payable\":1,\"custom_category_id\":null,\"hours\":\"8.00\",\"description\":null,\"source\":\"manual_entry\",\"source_ref_id\":null,\"status\":\"rejected\",\"rate_snapshot_id\":null,\"dimension_snapshot_json\":null,\"dimension_snapshot_hash\":null,\"approved_by_user_id\":null,\"approved_at\":null,\"approved_via\":null,\"client_approver_email\":null,\"rejected_reason\":\"Synthetic reviewed correction\",\"superseded_by_id\":null,\"correction_reason\":null,\"created_by_user_id\":4,\"created_at\":\"2026-11-14 02:20:03\",\"updated_at\":\"2026-11-14 02:20:03\",\"bill_extracted_at\":null,\"bill_extracted_ref\":null,\"bill_extracted_by_user_id\":null,\"ap_extracted_at\":null,\"ap_extracted_ref\":null,\"ap_extracted_by_user_id\":null,\"payroll_extracted_at\":null,\"payroll_extracted_ref\":null,\"payroll_extracted_by_user_id\":null}],\"succeeded\":1,\"failed\":0,\"results\":[{\"id\":130,\"ok\":true}],\"rejected\":1,\"posting_warnings\":[]}}",
+      "Reviewed decision races create no financial execution"
+    ],
+    "client_link_cases": [],
+    "provider_calls": 0,
+    "financial_execution": false
+  },
+  "http": {
+    "checks": 796,
+    "native_decision_cases": [
+      "Decision review requires native authentication",
+      "Decision review requires decision permission rather than read-only access",
+      "Read-only decision review returns the entire selected set without writes",
+      "Review identifies permanent worker and placement numbers without disclosing pay or bill rates",
+      "Approval cannot bypass the browser review revision",
+      "Legacy approve action also requires the reviewed revision",
+      "An approval review cannot be reused for only a subset",
+      "A review cannot authorize the opposite decision",
+      "Invalid selection members cannot be silently discarded",
+      "Missing or foreign selection members refuse the entire review",
+      "Reviewed approval refuses changed time_entries.hours atomically",
+      "Reviewed approval refuses changed placement_rates.pay_rate atomically",
+      "Reviewed approval refuses changed people.first_name atomically",
+      "Final decision receipt failure rolls back every entry approval and header projection",
+      "Reviewed entry approval persists exactly the confirmed decision",
+      "Weekly rejection review displays the approved sibling without selecting it for rejection",
+      "Rejection requires a reason before any decision write",
+      "Overlong rejection reasons cannot partially change the week",
+      "A newly added weekly entry invalidates the previously displayed set",
+      "Late rejection receipt failure restores all rows, prior approvals and artifacts",
+      "Reviewed weekly rejection records the actual reviewer and reason",
+      "Rejection changes the complete pending set and preserves the approved sibling exactly",
+      "Repeated rejection does not create another decision or receipt",
+      "Reviewed entry decisions and weekly rejection create no financial execution"
+    ],
+    "client_link_cases": [],
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "native_session_checks": 953,
+  "disposable_business_journeys": [
+    "Submitted week approved with frozen rate, dimensions, artifact, and one posted journal.",
+    "CSV time -> timesheet -> independent invoice approval -> ledger -> logged email -> bank receipt -> paid invoice passed.",
+    "Bank receipt matched, reversed, and corrected without stale reconciliation links."
+  ],
+  "installed": false,
+  "production_changed": false,
+  "provider_changed": false,
+  "arabella_changed": false,
+  "source_git_blob_sha256": {
+    ".deploy-version": "7bfc1660cb1bdc5c40e14c488a247627e997eb41107fd2acddbff7e19e56c807",
+    "dashboard/dist/index.html": "ab314f1b8a52a588c4e236879e14297739504c44974fcf492c64b95e0ad1b339",
+    "dashboard/tests/timeDecisionReview.test.mjs": "fbdd35272ea2b1df456d8201d689b66a7a47dfb960890c30ba672380777f0443",
+    "index.html": "ab314f1b8a52a588c4e236879e14297739504c44974fcf492c64b95e0ad1b339",
+    "modules/staffing/api/timesheets.php": "1f870f4825ec6ee29a20aa0fb6dd49cf8aeb7bb59e04f7dccc1cdc766c1948f7",
+    "modules/staffing/lib/timesheets.php": "cc06d4aab7c51ac52191fbb78329d262b0529786750b166c16cf00dd6aab9dcc",
+    "modules/staffing/ui/StaffingApprovals.jsx": "75df5bcc49701fa634bf7d9c702115b699c336b406c179df1af8113736a1a506",
+    "modules/staffing/ui/TimesheetDetail.jsx": "922ea63d520b11af03ab93a45702710940222b9db1fe6a7cb7ad632a03a3a1ba",
+    "modules/time/api/entries.php": "f83f460ec7b0503c03bfa81ed5ba9b025a71518aaeeb8a85639cc186b26d91db",
+    "modules/time/lib/native_decisions.php": "cf3dbe88ee5a82f11e4867fe220a89f489d4a240ede4f308e3867ced2a8b73c1",
+    "modules/time/lib/time.php": "23615f4b25c337bbc7f8f313636594b6dfc8515328371b023c0e2639b7ab22e3",
+    "modules/time/ui/ReviewQueue.jsx": "498e888abc174403b698f4133957719434d4d9fa28408ddfe35b3846e3b85f91",
+    "modules/time/ui/TimeDecisionReview.jsx": "0aef3e787bef1261f2dd46eb5bef49684422ea663f97ead1fa900405f7f385c4",
+    "spa-assets/index-BfM3-wgO.js": "cc3378828030803e15006fab84247bc5ef304845640fa1cffc735b4b0acdc5cf",
+    "spa-assets/index-D7sOzbhG.js": "f0acacd875132e797b650efbfc1a5b9760c4b1f74c5cad968014a7dcfd91f458",
+    "spa-assets/index-DHkR5Two.js": "640e84504c8b5ecb6dc70b39b9af13834f9a8f6e547ca147ba310fa3fdb16624",
+    "spa-assets/index-GszQpoXi.js": "a8a1f3c214c63c0d9a2dbd85b4328e604f336e6547794bcd4b308be85234e1f9",
+    "spa-assets/index.html": "ab314f1b8a52a588c4e236879e14297739504c44974fcf492c64b95e0ad1b339",
+    "spa-assets/sw.js": "76bd9d990c594470ad129e6c546c8b5649b93da932c81a6f086a1151369d4563",
+    "tests/company_relationship_concurrency_db.php": "639afa80c7b431607426920f25af30bf1baea5829022f470ccd8b7c78b06594f",
+    "tests/csv_to_invoice_live.php": "d5aa5e3154d8410fcebfeb898075ef0cac256e998bcc59daefada306ec1dd0ca",
+    "tests/fixtures/placement_contract_http_router.php": "ba235fab319d6cdcbbf40fd909c7f5a0ce340228be9ea1223d3968410d9a4dc9",
+    "tests/fixtures/time_approval_alignment_http_checks.php": "ad6ab92c0cfb3bc084b94c0ba99d7e33e0a4a8f96205994dd6f84849f612ebbf",
+    "tests/fixtures/time_decision_review_concurrency_checks.php": "d95a4f1f2987ee2144632096269b521597c55c83cc59ec11671bc91da7c12288",
+    "tests/fixtures/time_decision_review_http_checks.php": "8bde16b7c20e4f4719b510d4034ed1aa0ec0954af43370dc59b082cd8278d55c",
+    "tests/operational_workflow_ease_smoke.php": "8102e275562a13e81e34abb22e7ce54dd4e7f718f396c4a2219a274912b6fb7c",
+    "tests/staffing_bulk_timesheet_approval_smoke.php": "d2939342efd48b9c864918157acfeda55a207c61590b2aa3324cebcbb7b55d3e",
+    "tests/staffing_shell_and_weekly_timesheet_smoke.php": "1d4e5e9c6c6927caebe8bfdc43519b43366338644503ab4044f50a820f0433fe",
+    "tests/time_approval_projection_db_check.php": "340b5cb84cf916c48698c999140c4b548f3a1c5fc7cdab667e8df85cd766520d",
+    "tests/time_entry_approved_audit_smoke.php": "5fe7f89918b4ef5678c3940b33c5bb17686f36ec27f766c0852e1cee999a6065"
+  },
+  "previous_goal_turn": "No integration progress: standalone accounting production status answered. Revalidated pending source and CI before correcting failed fixtures and complete screen packaging.",
+  "remaining": [
+    "Client issued-set and decision review acceptance",
+    "Weekly email-token review and consumption",
+    "Preapproved CSV",
+    "Durable financial handoff and downstream frozen-rate enforcement",
+    "Full financial correction and aggregate provenance",
+    "Remaining field, category, period and reference ownership",
+    "Migrations, guarded full pilot upgrade and signed-in integration round trip"
+  ]
+}

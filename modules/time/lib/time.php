@@ -319,11 +319,7 @@ function timeApproveEntry(int $id, array $user, string $approvedVia = 'manual'):
         if (!$entry) throw new RuntimeException("Entry {$id} not found",404);
         $actor=(int)($user['id']??0);
         $snapshot=timeNativeApprovalSnapshot($entry,$actor);
-        $sourceIds=[$id];
-        if (!empty($entry['timesheet_id'])) {
-            $siblings=staffingTimeQuery('SELECT id,status FROM time_entries WHERE tenant_id=:tenant_id AND timesheet_id=:id AND status!="superseded" ORDER BY id',['id'=>$entry['timesheet_id']]);
-            if (!array_filter($siblings,static fn($row)=>(int)$row['id']!==$id && $row['status']!=='approved')) $sourceIds=array_map('intval',array_column($siblings,'id'));
-        }
+        $sourceIds=timeNativeApprovalSourceIds([$entry],$actor);
         $sourceCheck=quantaTimeAssertCurrent(getDB(),staffingTimeWorkspace(),$sourceIds);
         if (timeEntryGet($id)!==$entry) throw new RuntimeException('The time entry changed during approval. Refresh and review it again.',409);
         $approved=timeNativeWriteApproval($entry,$snapshot,$actor,$approvedVia,[

@@ -74,6 +74,7 @@ function timeNativeDecisionState(int $actor,string $kind,array $ids,string $deci
             'will_change'=>$entry['status']==='pending_review',
         ];
     }
+    if ($decision==='approve' && $kind==='entries') timeNativeApprovalSourceIds(array_values($pending),$actor);
     $revision=hash('sha256',staffingDimensionSnapshotCanonicalJson([
         'actor'=>$actor,'workspace'=>staffingTimeWorkspace(),'kind'=>$kind,'ids'=>$ids,'decision'=>$decision,
         'people_owner'=>StaffingNativeTimeEdit::owner('people'),'placement_owner'=>StaffingNativeTimeEdit::owner('placements'),

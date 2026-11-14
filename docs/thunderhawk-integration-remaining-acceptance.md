@@ -2,6 +2,14 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 13 reviewed native time decisions — source accepted, client links in progress
+
+Exact source `947ce2ee` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43545405891): **824 independent-connection checks**, including **49 reviewed-decision checks**; **953 native-session checks**; and **796 native HTTP checks**, including **24 reviewed-decision checks**. Temporary actor, server and private-session cleanup passed. [Pinned evidence](../deploy/thunderhawk-time-decision-review-preparation-20261113.json). This source is not installed. [Behavior and limits](thunderhawk-time-decision-review.md).
+
+The native queues and weekly detail now require the exact displayed selection and current original-workspace facts. Rejections record their reason and actual reviewer atomically with all selected entries, weekly projections and audit receipts, preserving already approved siblings. Changed selections, identities, rates or weekly membership refuse without partial writes.
+
+A subsequent source change is being validated for generic client email links: complete issued facts, current displayed revisions, actual external actors, atomic token consumption/revocation and no blind retry. It is not yet accepted or installed. Weekly email-token handling, preapproved CSV, durable financial handoff, frozen-rate consumption, remaining field/reference/period/category semantics, guarded pilot installation and the full signed-in integration round trip remain open. Production, provider runtimes and Arabella are unchanged. The full goal remains active.
+
 ## November 13 native time approval — source accepted, full review lifecycle remains open
 
 The previous user-facing turn answered standalone-accounting timing and made no integration change. This continuation revalidated and completed the shared native approval candidate. Exact source `da3f504f` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43542984361): **775 independent-connection checks** (**65 new approval checks**), **953 native Core-session checks** and **772 placement-contract HTTP checks** (**25 new approval checks**). Temporary actor, server and private-session cleanup passed. [Pinned evidence](../deploy/thunderhawk-time-approval-preparation-20261113.json). This source is not installed. [Behavior and limits](thunderhawk-time-approval-alignment.md).

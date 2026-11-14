@@ -20,6 +20,15 @@ RBACResolver::grantModule($member,'time','read',[$workspace],$actor);
 $expect($nativeRequest('POST',$tokenPath.'?action=issue',$issueBody,true,$workspace)[0]===403&&$snapshot($tokenTables)===$before,'Time readers cannot issue client approval credentials');
 RBACResolver::grantModule($member,'time','admin',[$workspace],$actor);
 $expect($nativeRequest('POST',$tokenPath.'?action=issue',['entry_ids'=>[$clientIds[0],'bad']]+$issueBody,true,$workspace)[0]===422&&$snapshot($tokenTables)===$before,'Client issuance refuses malformed selection members without writes');
+foreach(['approval-worker@example.invalid','approval-preparer@example.invalid']as$selfEmail) {
+    $pdo->prepare('UPDATE placements SET client_approver_email=? WHERE id=?')->execute([$selfEmail,$placement]);$before=$snapshot($tokenTables);
+    $expect($nativeRequest('POST',$tokenPath.'?action=issue',$issueBody,true,$workspace)[0]===403&&$snapshot($tokenTables)===$before,'Client credential cannot be issued to its own '.($selfEmail==='approval-worker@example.invalid'?'worker':'preparer'));
+}
+$pdo->prepare('UPDATE placements SET client_approver_email=? WHERE id=?')->execute([$clientEmail,$placement]);
+$before=$snapshot($tokenTables);
+$pdo->exec("CREATE TRIGGER cf_http_client_receipt BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.tenant_id=900021 AND NEW.event='time.tokenized_email.issued' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic client issue receipt failure'; END IF; END");
+try {$expect($nativeRequest('POST',$tokenPath.'?action=issue',$issueBody,true,$workspace)[0]===503&&$snapshot($tokenTables)===$before,'Client issue receipt failure leaves no usable credential or time change');}
+finally {$pdo->exec('DROP TRIGGER cf_http_client_receipt');}
 [$status,$apiIssued]=$nativeRequest('POST',$tokenPath.'?action=issue',$issueBody,true,$workspace);
 $expect($status===202&&$apiIssued['email_status']==='failed'&&$read('time_approval_tokens',$apiIssued['token_id'])['email_status']==='failed','Native client issuance persists its complete set and does not call log-only mail delivered');
 $issued=timeClientTokenIssue($workspace,$actor,$placement,$clientPeriod,$clientIds);
@@ -27,6 +36,10 @@ $tokenRow=$read('time_approval_tokens',$issued['token_id']);
 $expect($tokenRow['token']!==$issued['raw']&&str_starts_with($tokenRow['token'],'sha256:')&&$tokenRow['token_hash']===timeTokenHash($issued['raw']),'Issued client secret is hashed in both token storage columns');
 $clientReview=static fn(array $issued,string $choice='approve')=>$nativeRequest('GET',$tokenPath.'?action=verify&t='.$issued['raw'].'&a='.$choice,null,false,$workspace);
 $clientRespond=static fn(array $issued,string $choice,?string $revision,string $note='Client requested correction',bool $signed=false)=>$nativeRequest('POST',$tokenPath.'?action=respond',['t'=>$issued['raw'],'action'=>$choice,'review_revision'=>$revision,'note'=>$note],$signed,$tenant);
+$incompleteSibling=$insert('time_entries',['tenant_id'=>$workspace,'person_id'=>$person,'placement_id'=>$placement,'period_id'=>$clientPeriod,'timesheet_id'=>$clientSheet,'work_date'=>'2026-10-21','hours'=>1,'hour_type'=>'regular','category'=>'regular_billable','status'=>'approved','created_by_user_id'=>$creator]);$before=$snapshot($tokenTables);
+$expect($clientReview($issued)[0]===409&&$snapshot($tokenTables)===$before,'Client completion refuses incomplete approval evidence on an unselected sibling');
+$expect($nativeRequest('POST','/modules/time/api/entries.php?action=decision_review',['ids'=>$clientIds,'decision'=>'approve'],true,$workspace)[0]===409&&$snapshot($tokenTables)===$before,'Native complete-set review also refuses incomplete prior sibling evidence');
+$pdo->prepare('DELETE FROM time_entries WHERE id=?')->execute([$incompleteSibling]);
 $before=$snapshot($tokenTables);[$status,$view]=$clientReview($issued);
 $expect($status===200&&$view['workspace_id']===$workspace&&count($view['entries'])===2&&strlen($view['revision'])===64&&$snapshot($tokenTables)===$before,'Client preview reads the complete original-workspace selection without writes');
 $expect(str_starts_with($view['placement']['person_number'],'P-')&&str_starts_with($view['placement']['placement_number'],'PL-')&&!str_contains(json_encode($view),'pay_rate')&&!str_contains(json_encode($view),'bill_rate'),'Client review exposes stable identities and hours without internal rates');
@@ -52,6 +65,9 @@ $expiring=timeClientTokenIssue($workspace,$actor,$placement,$clientPeriod,$clien
 [$status,$expired]=$clientReview($expiring);$expect($status===200&&$expired['status']==='expired'&&!isset($expired['entries'])&&$snapshot($tokenTables)===$before,'Expired client preview reveals no entries and never mutates token state');
 $revoking=timeClientTokenIssue($workspace,$actor,$placement,$clientPeriod,$clientIds);[$status,$revokeView]=$clientReview($revoking);
 $before=$snapshot($tokenTables);$expect($nativeRequest('POST',$tokenPath.'?action=revoke&id='.$revoking['token_id'],[],true,$tenant)[0]===404&&$snapshot($tokenTables)===$before,'Parent workspace cannot revoke a child-workspace client link');
+$pdo->exec("CREATE TRIGGER cf_http_client_receipt BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.tenant_id=900021 AND NEW.event='time.tokenized_email.revoked' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic revoke receipt failure'; END IF; END");
+try {$expect($nativeRequest('POST',$tokenPath.'?action=revoke&id='.$revoking['token_id'],[],true,$workspace)[0]===503&&$snapshot($tokenTables)===$before,'Revocation receipt failure preserves the pending credential');}
+finally {$pdo->exec('DROP TRIGGER cf_http_client_receipt');}
 $expect($nativeRequest('POST',$tokenPath.'?action=revoke&id='.$revoking['token_id'],[],true,$workspace)[0]===200,'Original workspace can revoke its pending client link');
 $before=$snapshot($tokenTables);$expect($clientRespond($revoking,'approve',$revokeView['revision'])[0]===409&&$snapshot($tokenTables)===$before,'A revoked credential cannot use its earlier review');
 $issued=timeClientTokenIssue($workspace,$actor,$placement,$clientPeriod,$clientIds);[$status,$view]=$clientReview($issued);$before=$snapshot($tokenTables);

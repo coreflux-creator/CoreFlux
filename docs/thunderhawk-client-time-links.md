@@ -1,0 +1,21 @@
+# Client time approval links
+
+This change brings generic client email links through the same original-workspace time validation and mandatory decision receipts as native review. It is source work for the isolated Thunderhawk pilot. It is not installed, and production, provider runtimes and Arabella are unchanged.
+
+## Contract
+
+- Issuance requires native permission and an exact, valid pending selection from one original assignment and period. The configured recipient must differ from the worker and preparer. The token stores a versioned issued-fact fingerprint and stable IDs. Both token columns hold digests rather than the bearer secret. Older tokens without issued facts require a new request.
+- Review resolves current shared directories from the token's original workspace, independently of any signed-in browser workspace. Changed issued entries, placement, worker identity, directory ownership or recipient configuration refuse the link. Approval resolves current rates and dimensions into a displayed revision; rejection does not require a valid rate merely to return time for correction.
+- The public page shows permanent person and placement numbers, exact dates, hours, categories and descriptions. Each decision has its own review and explicit confirmation. Rejection requires a reason. GET requests never consume or expire credentials in storage; used, revoked and expired links reveal only terminal status.
+- Response rechecks the complete issued selection and displayed revision under locks. It validates Quanta source currency, writes frozen approval evidence or shared rejection, reconciles weekly headers and artifacts, consumes the token and requires a final receipt in one transaction. An audit failure restores all effects. No authenticated user is invented for an external reviewer.
+- Completing a week validates already approved siblings and includes their Quanta source records in the current-source check. Previously approved rows retain their original evidence.
+- Revocation uses the original workspace, conditional token state and a required receipt. A concurrent revocation, changed fact or repeat response cannot produce another decision. Client uncertainty requires reloading status; double-clicking cannot send two concurrent requests from the page.
+- Email delivery stays outside the database transaction. Log-only mail is not reported as delivered. This change does not establish provider email delivery or a durable email outbox/retry workflow.
+
+## Validation
+
+The candidate is under full CI. Local tests execute the public page script for seven confirmation, reason, retry, duplicate-click and untrusted-message cases. Native HTTP tests exercise actual authentication, original/shared ownership, rendered PHP review, issuance, read-only preview, exact revision, recipients, stale source/rates, expired/legacy/revoked links, complete atomic decisions and receipt-failure rollback. Independent connections exercise committed and rolled-back changes to hours, recipient, period, rate and revocation.
+
+## Remaining
+
+The separate weekly email-token implementation, preapproved CSV, durable approval-to-financial-result handling, downstream frozen-rate enforcement, paired financial corrections and older aggregate provenance remain unfinished. Shared field and reference ownership, category/period semantics, migrations, the guarded full pilot upgrade and signed-in complete Quanta/PurePay/PurePayroll round-trip acceptance are still required. This change is not a production release or a claim that the full integration is complete.
