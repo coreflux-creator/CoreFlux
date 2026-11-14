@@ -29,7 +29,10 @@ expect(request(path,{'action':'status'},token)[0]==503,'Diagnostic refuses witho
 expect(request('index.php')[0]==503,'Maintenance blocks business PHP')
 expect(request(path,{'action':'status'},'wrong')[0]==404,'Wrong diagnostic token is refused')
 expect(request(path+'?bypass=1',{'action':'status'},token)[0]==503,'Query-string route cannot bypass maintenance')
-status,raw=request(path,{'action':'status'},token);report=json.loads(raw)
+for _ in range(40):
+    status,raw=request(path,{'action':'status'},token);report=json.loads(raw)
+    if status!=200 or report['pool']['request_pool_quiet']:break
+    time.sleep(.1)
 expect(status==200 and report['pool']['request_pool_quiet'] and report['pool']['pool_matches'],'Distinct-account diagnostic proves native FPM is quiet')
 expect(report['private_files_read'] is False and report['application_bootstrap'] is False and report['global_cache_reset'] is False,'Inspection needs neither private files nor application initialization')
 expect(request(path,{'action':'invalidate','plan_sha256':'0'*64},token)[0]==503,'Caller cannot supply an unreviewed cache plan')

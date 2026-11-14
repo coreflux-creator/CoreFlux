@@ -56,18 +56,25 @@ function tpHttp(string $path,string $method='GET',?string $token=null,?array $pa
     return ['status'=>$status,'body'=>$body];
 }
 function tpChannel(array $state,array $request): array {
-    $r=tpHttp($state['channel']['path'],'POST',$state['channel_token'],$request);
-    $value=json_decode($r['body'],true);
-    $observation=['http_status'=>$r['status'],'response'=>$value,'body_sha256'=>hash('sha256',$r['body'])];
-    tpPrivate(__DIR__.'/last-channel-observation.json',json_encode($observation,JSON_THROW_ON_ERROR),file_exists(__DIR__.'/last-channel-observation.json'));
-    if($r['status']!==200||!is_array($value)||!($value['pool']['request_pool_quiet']??false)
-        ||($value['operation']??null)!==$state['operation'])throw new RuntimeException('Pilot request pool is not verifiably drained');
-    $pid=$value['self_pid']??null;
-    if(!is_int($pid)||$pid<1)throw new RuntimeException('Native web process identity unavailable');
-    $status=@file_get_contents('/proc/'.$pid.'/status');$cmd=@file_get_contents('/proc/'.$pid.'/cmdline');
-    if(!is_string($status)||!preg_match('/^Uid:\s+1009\s+1009\s+1009\s+1009\s*$/m',$status)
-        ||!is_string($cmd)||!str_starts_with($cmd,'php-fpm: pool muzqvdvqbx-82'))throw new RuntimeException('Native web process owner or pool differs');
-    return $value;
+    $deadline=microtime(true)+15;
+    do{
+        $r=tpHttp($state['channel']['path'],'POST',$state['channel_token'],$request);
+        $value=json_decode($r['body'],true);
+        $observation=['http_status'=>$r['status'],'response'=>$value,'body_sha256'=>hash('sha256',$r['body'])];
+        tpPrivate(__DIR__.'/last-channel-observation.json',json_encode($observation,JSON_THROW_ON_ERROR),file_exists(__DIR__.'/last-channel-observation.json'));
+        if($r['status']!==200||!is_array($value)||($value['operation']??null)!==$state['operation']
+            ||!($value['pool']['pool_matches']??false))throw new RuntimeException('Pilot request pool is not verifiably identified');
+        $pid=$value['self_pid']??null;
+        if(!is_int($pid)||$pid<1)throw new RuntimeException('Native web process identity unavailable');
+        $status=@file_get_contents('/proc/'.$pid.'/status');$cmd=@file_get_contents('/proc/'.$pid.'/cmdline');
+        if(!is_string($status)||!preg_match('/^Uid:\s+1009\s+1009\s+1009\s+1009\s*$/m',$status)
+            ||!is_string($cmd)||!str_starts_with($cmd,'php-fpm: pool muzqvdvqbx-82'))throw new RuntimeException('Native web process owner or pool differs');
+        if($value['pool']['request_pool_quiet']??false)return $value;
+        // Re-observe a known pool while its current requests finish. Never replay a cache action.
+        if($request!==['action'=>'status']||microtime(true)>=$deadline)break;
+        usleep(200000);
+    }while(true);
+    throw new RuntimeException('Pilot request pool did not drain within the bounded observation');
 }
 function tpCache(array $state,array $files,string $phase): array {
     $plan=['version'=>1,'operation'=>$state['operation'],'candidate_commit'=>$state['candidate'],
