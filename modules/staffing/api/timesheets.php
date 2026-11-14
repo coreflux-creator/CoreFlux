@@ -734,7 +734,12 @@ if ($method === 'POST' && in_array($action, ['submit','approve','reject'], true)
     if ($pid <= 0 || !$ps || !$pe) api_error('person_id, period_start, period_end required', 422);
 
     if ($action === 'submit') {
-        staffingApiRequirePersonWrite($ctx, $pid, 'staffing.time.submit');
+        // Recheck self-service identity inside the same protected submission.
+        $authorizeSubmission = static function(int $person) use ($ctx, $user): void {
+            if (staffingApiCanPermission($ctx, 'staffing.time.approve')) return;
+            if (staffingApiCanPermission($ctx, 'staffing.time.submit') && timePersonIdForUser($user) === $person) return;
+            throw new RuntimeException('You do not have permission to submit this worker’s time', 403);
+        };
     } elseif ($action === 'approve') {
         api_require_legacy_permission($ctx, 'staffing.time.approve');
     } else {
@@ -743,7 +748,7 @@ if ($method === 'POST' && in_array($action, ['submit','approve','reject'], true)
 
     try {
         if ($action === 'submit') {
-            $snap = staffingTimesheetSubmit((int) ($user['id'] ?? 0), $pid, $ps, $pe);
+            $snap = staffingTimesheetSubmit((int) ($user['id'] ?? 0), $pid, $ps, $pe, $authorizeSubmission);
         } elseif ($action === 'approve') {
             $snap = staffingTimesheetApprove((int) ($user['id'] ?? 0), $pid, $ps, $pe);
         } else { // reject
@@ -753,7 +758,8 @@ if ($method === 'POST' && in_array($action, ['submit','approve','reject'], true)
         }
         api_ok(['ok' => true, 'timesheet' => $snap['timesheet'], 'entries' => $snap['entries']]);
     } catch (\Throwable $e) {
-        api_error($e->getMessage(), 422);
+        $failure = staffingApiTimeEditError($e, 422);
+        api_error($failure['message'], $failure['status']);
     }
 }
 

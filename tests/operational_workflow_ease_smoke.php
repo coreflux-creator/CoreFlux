@@ -16,6 +16,7 @@ $timeNav = $read('modules/time/ui/TimeWorkspaceNav.jsx');
 $timeReview = $read('modules/time/ui/ReviewQueue.jsx');
 $timeEntries = $read('modules/time/api/entries.php');
 $timeLib = $read('modules/time/lib/time.php');
+$timeSubmission = $read('modules/time/lib/native_submission.php');
 $timeImport = $read('modules/time/api/csv_import.php');
 $timeExport = $read('modules/time/api/csv_export.php');
 $timeMyTime = $read('modules/time/ui/MyTime.jsx');
@@ -58,11 +59,12 @@ $assert('weekly time submission uses one atomic bulk endpoint',
 $assert('time submission validates every row before its bulk update',
     str_contains($timeLib, 'Only draft entries can be submitted:')
     && str_contains($timeLib, 'FOR UPDATE')
-    && str_contains($timeLib, 'Time entries changed while being submitted'));
+    && str_contains($timeSubmission, 'Time entries changed while being submitted')
+    && str_contains($timeLib, 'timeNativeApplySubmission($rows'));
 $assert('self-service time submission cannot submit another person\'s entries',
     str_contains($timeLib, 'function timePersonIdForUser')
     && str_contains($timeLib, 'You can only submit your own time entries')
-    && str_contains($timeEntries, "rbac_legacy_can(\$user, 'time.entry.manage')"));
+    && str_contains($timeEntries, "timeApiCanPermission(\$ctx, 'time.entry.manage')"));
 $assert('bulk review caps requests at 500 entries', str_contains($timeEntries, 'Too many ids (max 500 per call)'));
 $assert('single and bulk approval share one helper',
     str_contains($timeLib, 'function timeApproveEntry')

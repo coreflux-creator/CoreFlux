@@ -405,6 +405,7 @@ try {
     require __DIR__.'/fixtures/placement_merge_http_checks.php';
     require __DIR__.'/fixtures/native_time_edit_http_checks.php';
     require __DIR__.'/fixtures/generic_time_edit_http_checks.php';
+    require __DIR__.'/fixtures/time_submission_http_checks.php';
     $operations[]=['GET',$sharedReviewPath,null];$operations[]=['PATCH',$sharedPath,$sharedBody];
     $unchanged=$snapshot($graphTables);
     RBACResolver::grantModule($membership,'placements','read',[$tenant],$actor);

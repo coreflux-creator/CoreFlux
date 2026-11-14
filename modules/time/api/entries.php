@@ -32,6 +32,12 @@ function timeApiAuthorizePerson(array $user,int $person): void
     if (!rbac_legacy_can($user,$permission)) throw new RuntimeException('You do not have permission to edit this worker’s time',403);
 }
 
+function timeApiCanPermission(array $ctx, string $permission): bool
+{
+    if (($ctx['role'] ?? '') === 'master_admin' || ($ctx['global_role'] ?? $ctx['user']['global_role'] ?? '') === 'master_admin' || !empty($ctx['is_global_admin'])) return true;
+    return rbac_legacy_can((array)($ctx['user'] ?? []), $permission);
+}
+
 function timeApiFailure(Throwable $error): array
 {
     if ($error instanceof PDOException || !($error instanceof RuntimeException || $error instanceof InvalidArgumentException)) {
@@ -61,16 +67,16 @@ if ($method === 'POST' && $action !== '') {
     }
 
     if ($action === 'submit' || $action === 'bulk_submit') {
-        rbac_legacy_require_any($user, ['time.entry.self', 'time.entry.manage']);
+        if (!timeApiCanPermission($ctx, 'time.entry.self') && !timeApiCanPermission($ctx, 'time.entry.manage')) api_error('You do not have permission to submit time', 403);
         $body = $action === 'bulk_submit' ? api_json_body() : [];
         $ids = $action === 'bulk_submit'
             ? (is_array($body['ids'] ?? null) ? $body['ids'] : [])
-            : [(int) api_query('id', 0)];
+            : [api_query('id', 0)];
         if (!$ids || max(array_map('intval', $ids)) <= 0) {
             api_error($action === 'bulk_submit' ? 'ids[] required' : 'id required', 422);
         }
         try {
-            $result = timeSubmitEntries($ids, $user, rbac_legacy_can($user, 'time.entry.manage'));
+            $result = timeSubmitEntries($ids, $user, timeApiCanPermission($ctx, 'time.entry.manage'));
         } catch (Throwable $e) {$failure=timeApiFailure($e);api_error($failure['message'],$failure['status']);}
         api_ok(['ok' => true] + $result);
     }

@@ -252,132 +252,53 @@ function timeReconcileTimesheetHeader(?int $timesheetId, ?int $actorUserId = nul
 /** Resolve the talent-pool person linked to an authenticated user. */
 function timePersonIdForUser(array $user): ?int
 {
-    $userId = (int) ($user['id'] ?? 0);
-    $email = trim((string) ($user['email'] ?? ''));
-    if ($userId <= 0 && $email === '') return null;
-
-    $peopleTenantId = effectiveTenantIdForModule('people', (int) currentTenantId()) ?? currentTenantId();
-    $pdo = getDB();
-    if ($email !== '') {
-        $stmt = $pdo->prepare(
-            'SELECT id FROM people
-              WHERE tenant_id = :people_tid AND deleted_at IS NULL
-                AND LOWER(email_primary) = LOWER(:email)
-              LIMIT 1'
-        );
-        $stmt->execute(['people_tid' => $peopleTenantId, 'email' => $email]);
-    } else {
-        $stmt = $pdo->prepare(
-            'SELECT p.id
-               FROM users u
-               JOIN people p ON p.tenant_id = :people_tid
-                            AND p.deleted_at IS NULL
-                            AND LOWER(p.email_primary) = LOWER(u.email)
-              WHERE u.id = :user_id
-              LIMIT 1'
-        );
-        $stmt->execute(['people_tid' => $peopleTenantId, 'user_id' => $userId]);
-    }
-    $id = $stmt->fetchColumn();
-    return $id ? (int) $id : null;
+    $userId = (int)($user['id'] ?? 0);
+    if ($userId <= 0) return null;
+    $protected = class_exists('StaffingNativeTimeEdit', false) && StaffingNativeTimeEdit::active();
+    $owner = $protected ? StaffingNativeTimeEdit::owner('people')
+        : (effectiveTenantIdForModule('people', (int)currentTenantId()) ?? currentTenantId());
+    // Read the authenticated account again; a stale session email is not ownership.
+    $q = getDB()->prepare('SELECT email FROM users WHERE id=?'.($protected ? ' FOR UPDATE' : ''));
+    $q->execute([$userId]);
+    $email = trim((string)$q->fetchColumn());
+    if ($email === '') return null;
+    $q = getDB()->prepare('SELECT id FROM people WHERE tenant_id=? AND deleted_at IS NULL AND LOWER(email_primary)=LOWER(?) ORDER BY id'.($protected ? ' FOR UPDATE' : ''));
+    $q->execute([$owner, $email]);
+    $ids = $q->fetchAll(PDO::FETCH_COLUMN);
+    // Never pick an arbitrary person if legacy data has an ambiguous identity.
+    return count($ids) === 1 ? (int)$ids[0] : null;
 }
 
 /** Atomically move one or more draft entries into review. */
 function timeSubmitEntries(array $entryIds, array $user, bool $canManageOthers = false): array
 {
-    $entryIds = array_values(array_unique(array_filter(
-        array_map('intval', $entryIds),
-        static fn(int $id): bool => $id > 0
-    )));
-    if (!$entryIds) throw new \RuntimeException('At least one entry is required', 422);
-    if (count($entryIds) > 500) throw new \RuntimeException('Too many entries (max 500 per submission)', 422);
-
-    $pdo = getDB();
-    $tenantId = (int) currentTenantId();
-    $placeholders = [];
-    $params = ['tenant_id' => $tenantId];
-    foreach ($entryIds as $idx => $entryId) {
-        $key = 'entry_' . $idx;
-        $placeholders[] = ':' . $key;
-        $params[$key] = $entryId;
+    require_once __DIR__.'/native_submission.php';
+    if (!$entryIds) throw new RuntimeException('At least one entry is required', 422);
+    foreach ($entryIds as $id) {
+        if ((!is_int($id) && !is_string($id)) || filter_var($id, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]) === false) {
+            throw new RuntimeException('Choose valid time entry IDs', 422);
+        }
     }
-
-    $pdo->beginTransaction();
-    try {
-        $stmt = $pdo->prepare(
-            'SELECT id, person_id, timesheet_id, status
-               FROM time_entries
-              WHERE tenant_id = :tenant_id
-                AND id IN (' . implode(',', $placeholders) . ')
-              FOR UPDATE'
-        );
-        $stmt->execute($params);
-        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        $foundIds = array_map(static fn(array $row): int => (int) $row['id'], $rows);
-        $missingIds = array_values(array_diff($entryIds, $foundIds));
-        if ($missingIds) {
-            throw new \RuntimeException('Time entries not found: ' . implode(', ', $missingIds), 404);
-        }
-
-        $invalid = [];
+    $entryIds = array_values(array_unique(array_map('intval', $entryIds)));
+    sort($entryIds, SORT_NUMERIC);
+    if (count($entryIds) > 500) throw new RuntimeException('Too many entries (max 500 per submission)', 422);
+    return StaffingNativeTimeEdit::run(static function() use ($entryIds, $user, $canManageOthers): array {
+        $q = getDB()->prepare('SELECT * FROM time_entries WHERE tenant_id=? AND id IN ('.implode(',', array_fill(0, count($entryIds), '?')).') ORDER BY id FOR UPDATE');
+        $q->execute([staffingTimeWorkspace(), ...$entryIds]);
+        $rows = $q->fetchAll(PDO::FETCH_ASSOC);
+        if (count($rows) !== count($entryIds)) throw new RuntimeException('Time entries not found in this workspace', 404);
         foreach ($rows as $row) {
-            if ((string) $row['status'] !== 'draft') {
-                $invalid[] = '#' . $row['id'] . ' is ' . $row['status'];
-            }
+            if ($row['status'] !== 'draft') throw new RuntimeException('Only draft entries can be submitted: #'.$row['id'].' is '.$row['status'], 409);
         }
-        if ($invalid) {
-            throw new \RuntimeException('Only draft entries can be submitted: ' . implode('; ', $invalid), 409);
-        }
-
         if (!$canManageOthers) {
             $personId = timePersonIdForUser($user);
-            if (!$personId) {
-                throw new \RuntimeException(
-                    'Your login is not linked to a People record. Ask an administrator to match your work email before submitting time.',
-                    403
-                );
-            }
-            $otherIds = [];
+            if (!$personId) throw new RuntimeException('Your login is not linked to one current People record. Ask an administrator to review your work email.', 403);
             foreach ($rows as $row) {
-                if ((int) $row['person_id'] !== $personId) $otherIds[] = (int) $row['id'];
-            }
-            if ($otherIds) {
-                throw new \RuntimeException('You can only submit your own time entries', 403);
+                if ((int)$row['person_id'] !== $personId) throw new RuntimeException('You can only submit your own time entries', 403);
             }
         }
-
-        $update = $pdo->prepare(
-            'UPDATE time_entries
-                SET status = "pending_review"
-              WHERE tenant_id = :tenant_id
-                AND id IN (' . implode(',', $placeholders) . ')
-                AND status = "draft"'
-        );
-        $update->execute($params);
-        if ($update->rowCount() !== count($entryIds)) {
-            throw new \RuntimeException('Time entries changed while being submitted. Refresh and try again.', 409);
-        }
-
-        foreach ($entryIds as $entryId) {
-            timeAudit('time.entry.submitted', [
-                'entry_id' => $entryId,
-                'submitted_by_user_id' => $user['id'] ?? null,
-                'batch_size' => count($entryIds),
-            ], $entryId);
-        }
-        foreach (array_unique(array_filter(array_map(
-            static fn(array $row): int => (int) ($row['timesheet_id'] ?? 0),
-            $rows
-        ))) as $timesheetId) {
-            timeReconcileTimesheetHeader($timesheetId, $user['id'] ?? null);
-        }
-        $pdo->commit();
-    } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        throw $e;
-    }
-
-    return ['submitted' => count($entryIds), 'entry_ids' => $entryIds];
+        return timeNativeApplySubmission($rows, (int)($user['id'] ?? 0));
+    });
 }
 
 /**

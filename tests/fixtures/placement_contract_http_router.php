@@ -16,7 +16,7 @@ if ($path === '/modules/time/api/entries.php') {
 }
 if ($path === '/modules/staffing/api/timesheets.php') {
     $actions=['GET'=>['list_for_placement','detail_for_placement','week','detail','list'],
-        'POST'=>['entry_save','entry_delete','reopen','bulk_save','entries_bulk_save']];
+        'POST'=>['entry_save','entry_delete','reopen','bulk_save','entries_bulk_save','submit']];
     if (!in_array($_GET['action']??'', $actions[$_SERVER['REQUEST_METHOD']]??[],true)) { http_response_code(404);exit; }
     $script=dirname(__DIR__,2).$path;$_SERVER['SCRIPT_FILENAME']=$script;require $script;exit;
 }

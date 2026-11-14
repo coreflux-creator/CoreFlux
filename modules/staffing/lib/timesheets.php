@@ -689,41 +689,29 @@ function staffingTimesheetBulkSaveLocked(int $userId, array $payload): array {
 }
 
 /** Submit the whole week → flips header + all rows to submitted/pending_review. */
-function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart, string $periodEnd): array {
-    staffingTimesheetValidateWeek($personId, $periodStart, $periodEnd);
-    $header = staffingTimesheetFind($personId, $periodStart);
-    if (!$header) throw new \RuntimeException('Add at least one positive-hour entry before submitting this timesheet.');
-    if (!in_array($header['status'], ['draft','rejected'], true)) {
-        throw new \RuntimeException("Cannot submit a {$header['status']} timesheet");
-    }
-    $headerId = (int) $header['id'];
-
-    staffingTimesheetRequirePositiveEntries($headerId, 'submit');
-
-    $pdo = getDB();
-    $ownsTxn = cf_tx_begin($pdo);
-    try {
-        staffingTimeUpdate('staffing_timesheets', $headerId, [
-            'status'       => 'submitted',
-            'submitted_at' => date('Y-m-d H:i:s'),
-        ]);
-        // Flip every non-superseded row to pending_review.
-        $upd = $pdo->prepare(
-            "UPDATE time_entries
-                SET status = 'pending_review'
-              WHERE tenant_id = :t AND timesheet_id = :tid AND status IN ('draft','rejected')"
-        );
-        $upd->execute(['t' => currentTenantId(), 'tid' => $headerId]);
-        staffingTimesheetRecordArtifactEvent($headerId, 'timesheet.submitted', $userId, [
-            'entry_count' => $upd->rowCount(),
-        ]);
-        cf_tx_commit($pdo, $ownsTxn);
-    } catch (\Throwable $e) {
-        cf_tx_rollback($pdo, $ownsTxn);
-        throw $e;
-    }
-
-    return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
+function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart, string $periodEnd, ?callable $authorize = null): array {
+    require_once __DIR__.'/../../time/lib/native_submission.php';
+    return StaffingNativeTimeEdit::run(static function() use ($userId, $personId, $periodStart, $periodEnd, $authorize): array {
+        if ($authorize) $authorize($personId);
+        staffingTimesheetValidateWeek($personId, $periodStart, $periodEnd);
+        $header = staffingTimesheetFind($personId, $periodStart);
+        if (!$header) throw new RuntimeException('Add at least one positive-hour entry before submitting this timesheet.', 422);
+        if ($header['period_end'] !== $periodEnd || !in_array($header['status'], ['draft','rejected'], true)) {
+            throw new RuntimeException('This week changed or is already submitted. Refresh and review it again.', 409);
+        }
+        $headerId = (int)$header['id'];
+        staffingTimesheetRequirePositiveEntries($headerId, 'submit');
+        $rows = staffingTimeQuery('SELECT * FROM time_entries WHERE tenant_id=:tenant_id AND timesheet_id=:id AND status!="superseded" ORDER BY id', ['id'=>$headerId]);
+        $pending = [];
+        foreach ($rows as $row) {
+            if ((int)$row['person_id'] !== $personId) throw new RuntimeException('Review this week’s original worker identity.', 409);
+            if ($row['status'] === 'approved') continue; // Preserve independent approval evidence.
+            if ($row['status'] === 'pending_review') { timeNativeValidateSubmission($row); continue; }
+            $pending[] = $row;
+        }
+        timeNativeApplySubmission($pending, $userId);
+        return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
+    });
 }
 
 /** Reject the whole week — rows return to draft, reason captured on header. */
