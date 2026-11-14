@@ -2,6 +2,16 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
+## November 13 CSV time source evidence — source accepted, full pilot still pending
+
+Exact source `0055ef4d` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43553724077): **938 independent-connection checks**, including **40 CSV checks**; **953 native-session checks**; and **893 native HTTP checks**, including **28 CSV checks**. Temporary actor, server and private-session cleanup passed. [Pinned evidence](../deploy/thunderhawk-csv-intake-preparation-20261113.json). This source is not installed.
+
+Imported external approvals remain traceable assertions, separate from the actual independent Core decision. Exact file replay returns the original receipt without changing approved time; changed previews, identities, periods or source evidence refuse. Both dedicated and bulk import screens carry the reviewed revision. [Behavior and remaining limits](thunderhawk-csv-time-intake.md).
+
+Read-only verification at **2026-11-14T03:38:31+00:00** confirmed pilot `4bc10bb0`, 367 file pins, 378 tables and 35,304 rows unchanged.
+
+Weekly aggregate semantics, durable financial handoff and frozen-rate enforcement remain open, along with full financial corrections/provenance, remaining field/reference/category/period semantics, required migrations, guarded installation and the complete signed-in Quanta/PurePay/PurePayroll round trip. The full integration goal remains active and incomplete. Production, providers and Arabella are unchanged.
+
 ## November 13 weekly external time review — source accepted, full pilot still pending
 
 Exact source `311567fb` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43550038483): **898 independent-connection checks**, including **37 weekly-email checks**; **953 native-session checks**; and **865 native HTTP checks**, including **33 weekly-email checks**. Temporary actor, server and private-session cleanup passed. [Pinned evidence](../deploy/thunderhawk-weekly-email-review-preparation-20261113.json). This source is not installed.

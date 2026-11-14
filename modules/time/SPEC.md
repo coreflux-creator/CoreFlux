@@ -17,10 +17,22 @@ Time captures **what hours were worked, on which placement, in which category**,
 Three intake paths feed Time:
 
 1. **AI inbox monitoring** — tenant has its own inbox under its own subdomain; AI parses incoming timesheet emails (PDF, image, embedded, structured).
-2. **Bulk uploads** — CSV / spreadsheet uploads, optionally pre-approved.
+2. **Bulk uploads** — CSV / spreadsheet uploads, including externally approved source records. The November 13 reviewed intake retains that external assertion separately and requires an independent Core decision; a checkbox does not identify or authenticate an external approver.
 3. **Individual entries** — direct entry by the worker or admin in the React UI.
 
 **Hard rule (HARD_RULES R-2026-04-27)**: AI may *post* time entries (with attached source docs), but downstream cash flow (AP/AR/Billing/Payroll/RevRec) **always** requires explicit human approval. AI describes; humans decide.
+
+**CSV intake contract (2026-11-13):** preview and confirmation bind the original
+workspace, file bytes, column mapping, options and current source records.
+An exact completed replay returns the original import receipt. Every accepted
+row retains encrypted source-file provenance and any asserted external
+reviewer, timestamp and reference. The original creator and the current
+importer cannot make the independent Core approval. The historical
+`bulk_pre_approved` value remains readable for older records; the revised CSV
+writer does not create new approvals through it. Weekly totals remain source
+totals pending a dated breakdown, so they are not represented as invented
+daily work. Full aggregate approval remains unfinished. See
+[CSV intake acceptance and remaining limits](../../docs/thunderhawk-csv-time-intake.md).
 
 ---
 

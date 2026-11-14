@@ -1,0 +1,210 @@
+{
+  "candidate_commit": "0055ef4dee92621af4a3ced2400e85408b570d4e",
+  "previous_goal_turn": "No integration progress: standalone accounting production timing answered. Revalidated pending source and implemented original-workspace CSV evidence, independent Core review, replay and both operator screens; validated the final candidate in disposable native HTTP and concurrent sessions.",
+  "ci": {
+    "run_id": 43553724077,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43553724077",
+    "jobs": [
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "concurrency": {
+    "checks": 938,
+    "csv_checks": [
+      "CSV race fixture has a valid native preview",
+      "CSV commit waits for hours COMMIT",
+      "Committed hours invalidates CSV review without writes: {\"ok\":false,\"code\":409,\"error\":\"The preview, original time or directory changed. Preview this file again.\"}",
+      "CSV race fixture has a valid native preview",
+      "CSV commit waits for worker_name COMMIT",
+      "Committed worker_name invalidates CSV review without writes: {\"ok\":false,\"code\":409,\"error\":\"The preview, original time or directory changed. Preview this file again.\"}",
+      "CSV race fixture has a valid native preview",
+      "CSV commit waits for period COMMIT",
+      "Committed period invalidates CSV review without writes: {\"ok\":false,\"code\":409,\"error\":\"The preview, original time or directory changed. Preview this file again.\"}",
+      "CSV race fixture has a valid native preview",
+      "CSV commit waits for placement_title COMMIT",
+      "Committed placement_title invalidates CSV review without writes: {\"ok\":false,\"code\":409,\"error\":\"The preview, original time or directory changed. Preview this file again.\"}",
+      "CSV race fixture has a valid native preview",
+      "CSV commit waits for source_identity COMMIT",
+      "Committed source_identity invalidates CSV review without writes: {\"ok\":false,\"code\":409,\"error\":\"The preview, original time or directory changed. Preview this file again.\"}",
+      "CSV race fixture has a valid native preview",
+      "CSV commit waits for hours ROLLBACK",
+      "Rolled-back hours allows reviewed CSV while retaining the original creator: {\"ok\":true,\"result\":{\"id\":null,\"import_id\":1,\"source_hash\":\"8954226855ea96224e6e5a1dff873701f9ea8cf42b741dda9b972d38c6a22d8f\",\"imported_count\":1,\"skipped_count\":0,\"errors\":[],\"ids\":{\"2\":189},\"timesheet_ids\":[172],\"timesheets\":[{\"id\":172,\"artifact_id\":\"8c01ac23-a10e-4be2-9006-8152df73720d\",\"person_id\":382,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"display_id\":\"TS-172\",\"approval_token_capable\":true}],\"pre_approved\":false,\"requires_independent_review\":true,\"replayed\":false,\"message\":\"Imported time awaits independent Core review. External approval details are retained as source evidence.\"}}",
+      "CSV updater cannot approve despite being different from the original creator",
+      "CSV race fixture has a valid native preview",
+      "CSV commit waits for worker_name ROLLBACK",
+      "Rolled-back worker_name allows reviewed CSV while retaining the original creator: {\"ok\":true,\"result\":{\"id\":null,\"import_id\":2,\"source_hash\":\"15b4e4d65463fd0d31764954ee619e91641cd2dca1649c9f43473c6e818e1d22\",\"imported_count\":1,\"skipped_count\":0,\"errors\":[],\"ids\":{\"2\":190},\"timesheet_ids\":[173],\"timesheets\":[{\"id\":173,\"artifact_id\":\"d714f8b4-4f84-4dff-9eba-1fab0053e9ee\",\"person_id\":383,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"display_id\":\"TS-173\",\"approval_token_capable\":true}],\"pre_approved\":false,\"requires_independent_review\":true,\"replayed\":false,\"message\":\"Imported time awaits independent Core review. External approval details are retained as source evidence.\"}}",
+      "CSV updater cannot approve despite being different from the original creator",
+      "CSV race fixture has a valid native preview",
+      "CSV commit waits for period ROLLBACK",
+      "Rolled-back period allows reviewed CSV while retaining the original creator: {\"ok\":true,\"result\":{\"id\":null,\"import_id\":3,\"source_hash\":\"b90afd45c6803648d38e1a272e1160b42e7239bf201ca1f55933e9d516302d48\",\"imported_count\":1,\"skipped_count\":0,\"errors\":[],\"ids\":{\"2\":191},\"timesheet_ids\":[174],\"timesheets\":[{\"id\":174,\"artifact_id\":\"8fa1ce1c-615b-410b-b240-d76b216d2eb4\",\"person_id\":384,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"display_id\":\"TS-174\",\"approval_token_capable\":true}],\"pre_approved\":false,\"requires_independent_review\":true,\"replayed\":false,\"message\":\"Imported time awaits independent Core review. External approval details are retained as source evidence.\"}}",
+      "CSV updater cannot approve despite being different from the original creator",
+      "CSV race fixture has a valid native preview",
+      "CSV commit waits for placement_title ROLLBACK",
+      "Rolled-back placement_title allows reviewed CSV while retaining the original creator: {\"ok\":true,\"result\":{\"id\":null,\"import_id\":4,\"source_hash\":\"b10e996a37cc3c86d7ed4913462a79512ee0acc157d344a190dee947ccf5656a\",\"imported_count\":1,\"skipped_count\":0,\"errors\":[],\"ids\":{\"2\":192},\"timesheet_ids\":[175],\"timesheets\":[{\"id\":175,\"artifact_id\":\"4bee7039-e87a-45b3-978c-6fabdb2b1f76\",\"person_id\":385,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"display_id\":\"TS-175\",\"approval_token_capable\":true}],\"pre_approved\":false,\"requires_independent_review\":true,\"replayed\":false,\"message\":\"Imported time awaits independent Core review. External approval details are retained as source evidence.\"}}",
+      "CSV updater cannot approve despite being different from the original creator",
+      "CSV race fixture has a valid native preview",
+      "CSV commit waits for source_identity ROLLBACK",
+      "Rolled-back source_identity allows reviewed CSV while retaining the original creator: {\"ok\":true,\"result\":{\"id\":null,\"import_id\":5,\"source_hash\":\"03bc78c85a45c7951fb30bf0152b3e4a1660b64ab39e8021962769b116c81414\",\"imported_count\":1,\"skipped_count\":0,\"errors\":[],\"ids\":{\"2\":193},\"timesheet_ids\":[176],\"timesheets\":[{\"id\":176,\"artifact_id\":\"c8b1cd3e-7f44-41f0-83ca-eb018d10d875\",\"person_id\":386,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"display_id\":\"TS-176\",\"approval_token_capable\":true}],\"pre_approved\":false,\"requires_independent_review\":true,\"replayed\":false,\"message\":\"Imported time awaits independent Core review. External approval details are retained as source evidence.\"}}",
+      "CSV updater cannot approve despite being different from the original creator",
+      "First exact CSV request waits for original entry",
+      "Concurrent exact CSV request waits for serialized intake",
+      "Concurrent identical CSV requests share one durable import and entry result: [{\"ok\":true,\"result\":{\"id\":null,\"import_id\":6,\"source_hash\":\"7079e0b858eb466d89081ac2db09ffe7a4db7cb1362c60420a9e07ebd573fc98\",\"imported_count\":1,\"skipped_count\":0,\"errors\":[],\"ids\":{\"2\":194},\"timesheet_ids\":[177],\"timesheets\":[{\"id\":177,\"artifact_id\":\"d785e504-dbc5-48ce-8913-5db86a337019\",\"person_id\":387,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"display_id\":\"TS-177\",\"approval_token_capable\":true}],\"pre_approved\":false,\"requires_independent_review\":true,\"replayed\":false,\"message\":\"Imported time awaits independent Core review. External approval details are retained as source evidence.\"}},{\"ok\":true,\"result\":{\"id\":null,\"import_id\":6,\"source_hash\":\"7079e0b858eb466d89081ac2db09ffe7a4db7cb1362c60420a9e07ebd573fc98\",\"imported_count\":1,\"skipped_count\":0,\"errors\":[],\"ids\":{\"2\":194},\"timesheet_ids\":[177],\"timesheets\":[{\"id\":177,\"artifact_id\":\"d785e504-dbc5-48ce-8913-5db86a337019\",\"person_id\":387,\"period_start\":\"2026-10-05\",\"period_end\":\"2026-10-11\",\"status\":\"submitted\",\"display_id\":\"TS-177\",\"approval_token_capable\":true}],\"pre_approved\":false,\"requires_independent_review\":true,\"replayed\":true,\"message\":\"Returned the saved result for this exact file and options. No time was changed.\"}}]",
+      "Concurrent CSV replay retains exactly one original source receipt",
+      "CSV concurrency acceptance creates no financial execution"
+    ],
+    "provider_calls": 0,
+    "financial_execution": false
+  },
+  "native_http": {
+    "checks": 893,
+    "csv_checks": [
+      "CSV review requires native authentication",
+      "CSV readers cannot import time",
+      "CSV preview preserves original ownership and writes no import evidence",
+      "CSV preview exposes the original external assertion without declaring it Core-approved",
+      "External reviewer may upload its own source assertion while actual Core approval stays independent",
+      "CSV commit requires its displayed preview revision",
+      "CSV bytes changed since preview cannot be imported",
+      "CSV commit rechecks the displayed assignment under current ownership locks",
+      "CSV final receipt failure restores source, rows, periods, headers and artifacts",
+      "External-approved CSV creates pending entries for an independent Core decision",
+      "CSV importer is recorded as creator without inventing approval or changing time ownership",
+      "CSV source bytes are retained encrypted with an exact source hash",
+      "Original CSV can be retrieved through its authenticated workspace",
+      "CSV source response identifies its exact workspace and file type for the reviewed browser download",
+      "CSV download refuses source bytes that do not match their retained fingerprint",
+      "CSV source cannot be downloaded from the parent workspace",
+      "Lost-response CSV replay returns its exact saved result without duplicate writes",
+      "CSV importer cannot independently approve its own imported time",
+      "Independent time review shows the original CSV evidence and source row",
+      "Changed CSV approval evidence invalidates an independent Core review",
+      "Independent Core review approves imported time with its actual reviewer and frozen evidence",
+      "Replaying a CSV after Core approval retains the approved history",
+      "Wrong person-number prefix cannot masquerade as a placement number",
+      "External-approval mode requires reviewer, timestamp and reference rather than a checkbox alone",
+      "CSV all-or-nothing mode leaves no rows or source receipt when any row is invalid",
+      "Reviewed Skip invalid mode records only accepted rows with explicit row errors",
+      "Weekly aggregate is retained as source total without inventing daily distribution or approval",
+      "CSV intake and independent review execute no financial work"
+    ],
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "native_sessions": 953,
+  "disposable_business_journeys": [
+    "Submitted week approved with frozen rate, dimensions, artifact, and one posted journal.",
+    "Weekly email review approved with actual external actor, frozen evidence, one posted journal and unchanged replay.",
+    "CSV time -> timesheet -> independent invoice approval -> ledger -> logged email -> bank receipt -> paid invoice passed.",
+    "Bank receipt matched, reversed, and corrected without stale reconciliation links."
+  ],
+  "local_checks": {
+    "rendered_csv_intake_behaviors": 7,
+    "rendered_decision_review_behaviors": 22,
+    "frontend_build": {
+      "modules": 6135,
+      "errors": 0,
+      "existing_warnings": 64
+    }
+  },
+  "runtime_file_pins": {
+    ".deploy-version": "12074efc3a33984341813070706d35cbb971d07412553a2288f4c7779852645a",
+    "core/migrations/202_time_csv_intake_evidence.sql": "64914a15ab02dda3ae2157eb567f5a440d4063c288a00af5305150097688fe65",
+    "dashboard/dist/index.html": "7ef58bb042d36eb0239f9c93fa92875a12fa845f147cf8da4a7c238a99187e04",
+    "dashboard/src/components/CsvImportPage.jsx": "0fd5403d2bde0d0a256d437213ac29288d1ff52513169ebe30a8cb6aa0abe673",
+    "dashboard/src/pages/CsvBulkImport.jsx": "c4881a699d6c20e02f0f7870478ec89e517f4484fa2c3f66263a2218ed4c2035",
+    "index.html": "7ef58bb042d36eb0239f9c93fa92875a12fa845f147cf8da4a7c238a99187e04",
+    "modules/time/api/csv_import.php": "1bc6923bbeab86bec9b2fd5ae85f860f61d2eb8e9403475c3abe404bfda0fb6b",
+    "modules/time/lib/csv_evidence.php": "eba03910d48d7986c7186ae97dd0844edf20a8c9bd939cdc13d45228e3b04aef",
+    "modules/time/lib/csv_intake.php": "3a768f24cfc9460dcf265177ca2a37ca33244c58c292ad6b5efafba419ee4219",
+    "modules/time/lib/csv_schema.php": "b4bb5a81b7d46a322da3d7c7a711ee0c0d09a8d94a0ea012b9120b8ba84b2d7a",
+    "modules/time/lib/native_decisions.php": "eaa7a5c21e702921b0f17b3bc42fb9fefb002ede76206fb19ed8bbb69b9f90bc",
+    "modules/time/lib/native_review.php": "050f1cbda5c3c044454baee970dd09c9b348b3bd52fb2b501aef05db7153f02e",
+    "modules/time/ui/CsvImport.jsx": "3e97d72981bde7c05a45d5064b653eee3bfe68ec2d84535cf491937f29368c36",
+    "modules/time/ui/TimeDecisionReview.jsx": "2e261e6934587aa6d18b9629be2525b8e71cb2d130f2271ee880ce21ab52ed86",
+    "spa-assets/index-8Z7FHL5W.js": "27727b70df253ea694265f4e5f363d3eddafd9f0d3531d30db83b59694a571ab",
+    "spa-assets/index-CBn4A26D.js": "f665516c582320a6047215acb5137e194f664fb803cd966c44ce22f2a2e39910",
+    "spa-assets/index-CVjFYEvz.js": "19baaaa0d4b1cf06f948a843e1f74e6ab274de203546c17ad7d43a69750d0126",
+    "spa-assets/index-DJwjARHA.js": "9639e468cfeb2540937820908e4acd375ee49fc7dab4c424a256072370e6c304",
+    "spa-assets/index.html": "7ef58bb042d36eb0239f9c93fa92875a12fa845f147cf8da4a7c238a99187e04",
+    "spa-assets/sw.js": "707d96bfc8215bb9be15650586a3c86428fd4f9a4397df62e04591feb6cdbe18"
+  },
+  "installed": false,
+  "installed_pilot_read_only_verification": {
+    "checked_at": "2026-11-14T03:38:31+00:00",
+    "passed": true,
+    "runtime_pins_verified": 367,
+    "tables_verified": 378,
+    "rows_preserved": 35304,
+    "configuration_preserved": true,
+    "synthetic_reviewer_retired": true,
+    "temporary_credentials_absent": true,
+    "temporary_probe_absent": true,
+    "synthetic_company_retired": true
+  },
+  "prior_runs": [
+    {
+      "run_id": 43552637165,
+      "result": "Concurrent fixture reused one external ID across two cases and violated its unique source key. Corrected fixture identities; this was not accepted."
+    },
+    {
+      "run_id": 43553034799,
+      "source_commit": "cd2af91f2be0f935d0fa2ad694cb5ae8e2788ee1",
+      "result": "All eleven jobs passed before the additional pinned browser source-download fix."
+    }
+  ],
+  "remaining": [
+    "weekly aggregate review with accurate dated rate/category/overtime semantics",
+    "durable financial handoff and frozen-rate enforcement",
+    "financial corrections and original aggregate provenance",
+    "remaining field/reference/category/period semantics",
+    "required migrations and guarded pilot installation",
+    "complete signed-in Quanta/PurePay/PurePayroll round trip"
+  ],
+  "production_changed": false,
+  "provider_changed": false,
+  "arabella_changed": false
+}

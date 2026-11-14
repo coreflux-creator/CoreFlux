@@ -1,6 +1,6 @@
 # CSV time intake and external approval evidence
 
-This change is in source validation; it is not installed or a production cutover.
+Exact source `0055ef4d` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43553724077): **938 independent-connection checks**, including **40 CSV checks**; **953 native-session checks**; and **893 native HTTP checks**, including **28 CSV checks**. Temporary actor, server and private-session cleanup passed. [Pinned evidence](../deploy/thunderhawk-csv-intake-preparation-20261113.json). This source is not installed.
 
 The old `already_approved=1` switch stamped the importing operator as the
 approver. It now means that each row must supply external approval evidence:
@@ -39,5 +39,4 @@ that capability is complete. No financial execution occurs during intake.
 Validation includes native authenticated HTTP requests, independent database
 connection races, source-download isolation, forced audit failure, unchanged
 replay, importer separation, changed-evidence refusal, and the existing
-synthetic time-to-invoice-to-bank-receipt journey. Record exact CI results after
-the final candidate passes; local syntax or UI checks alone are insufficient.
+synthetic time-to-invoice-to-bank-receipt journey. The exact candidate passed the full CI run above, including the native accounting journey.
