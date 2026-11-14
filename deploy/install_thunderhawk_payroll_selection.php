@@ -100,7 +100,7 @@ $package=json_decode($packageBytes,true,512,JSON_THROW_ON_ERROR);$tools=json_dec
 foreach($tools['files']as$file=>$hash)if(hash('sha256',tpRead(__DIR__.'/'.$file))!==$hash)throw new RuntimeException('Installation tool changed');
 // The reviewed package hash binds the exact application commit and bytes; the staging runner verifies that commit's full CI.
 if(($package['root']??null)!==TP_ROOT||!preg_match('/^[a-f0-9]{40}$/D',$package['application_source_commit']??'')
-    ||count($package['files']??[])!==13||count($package['dependencies']??[])!==460)exit(2);
+    ||count($package['files']??[])!==13||count($package['dependencies']??[])!==462)exit(2);
 $expected=['api/purepay_core.php','core/integrations/purepay_payroll_inputs.php','core/integrations/purepay_payroll_authority.php',
     'modules/treasury/ui/PurePayrollInputReview.jsx','.deploy-version','spa-assets/sw.js','spa-assets/index.html','dashboard/dist/index.html','index.html'];
 if(array_diff($expected,array_keys($package['files'])))throw new RuntimeException('Required application files are missing');
@@ -163,7 +163,7 @@ try{
     if($web!==$expected||hash('sha256',$maintenance->crontab())!==$tpHostPreparation['scheduler_sha256'])throw new RuntimeException('Hosting state changed');
     $review=[];foreach($tpHostPreparation['scheduler_jobs']as$j){if($j['pilot_reference']||!$j['production_reference'])throw new RuntimeException('Scheduler needs explicit disposition');$review[$j['line']]=['sha256'=>$j['sha256'],'action'=>'keep'];}
     if((int)$pdo->query("SELECT COUNT(*) FROM information_schema.EVENTS WHERE EVENT_SCHEMA=DATABASE()")->fetchColumn()!==0)throw new RuntimeException('Database events require separate hold');
-    if($argv[1]==='inspect'){echo json_encode(['ready'=>true,'files'=>13,'dependencies'=>460,'migrations'=>0,'application_changed'=>false,'private_tools_staged'=>true])."\n";exit;}
+    if($argv[1]==='inspect'){echo json_encode(['ready'=>true,'files'=>13,'dependencies'=>462,'migrations'=>0,'application_changed'=>false,'private_tools_staged'=>true])."\n";exit;}
     $operation=bin2hex(random_bytes(16));$token=bin2hex(random_bytes(32));$path='core-maintenance-'.$operation.'-'.bin2hex(random_bytes(16)).'.php';
     $spec=['operation'=>$operation,'candidate_commit'=>$package['application_source_commit'],'token_sha256'=>hash('sha256',$token),
         'held_web_sha256'=>hash('sha256',fullCoreMaintenanceWebRule($operation,$path)),
@@ -216,7 +216,7 @@ try{
     }
     tpFinishProbe($state);$state['phase']='completed';$state['completed_at']=gmdate('c');$save();
     echo json_encode(['passed'=>true,'operation'=>$operation,'source_commit'=>$state['candidate'],'schema'=>$state['schema'],
-        'installed_files'=>13,'retained_dependency_pins'=>460,'configuration_preserved'=>true,'diagnostic_removed'=>true,
+        'installed_files'=>13,'retained_dependency_pins'=>462,'configuration_preserved'=>true,'diagnostic_removed'=>true,
         'maintenance_restored'=>true,'production_changed'=>false,'provider_requests'=>0])."\n";
 }catch(Throwable $error){
     // Before file replacement, restore ingress only after proving every application preimage.
