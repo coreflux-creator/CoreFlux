@@ -64,7 +64,18 @@ $pdo->prepare('UPDATE time_approval_tokens SET entries_json=? WHERE id=?')->exec
 $expiring=timeClientTokenIssue($workspace,$actor,$placement,$clientPeriod,$clientIds);$pdo->prepare('UPDATE time_approval_tokens SET expires_at="2000-01-01" WHERE id=?')->execute([$expiring['token_id']]);$before=$snapshot($tokenTables);
 [$status,$expired]=$clientReview($expiring);$expect($status===200&&$expired['status']==='expired'&&!isset($expired['entries'])&&$snapshot($tokenTables)===$before,'Expired client preview reveals no entries and never mutates token state');
 $revoking=timeClientTokenIssue($workspace,$actor,$placement,$clientPeriod,$clientIds);[$status,$revokeView]=$clientReview($revoking);
-$before=$snapshot($tokenTables);$expect($nativeRequest('POST',$tokenPath.'?action=revoke&id='.$revoking['token_id'],[],true,$tenant)[0]===404&&$snapshot($tokenTables)===$before,'Parent workspace cannot revoke a child-workspace client link');
+$before=$snapshot($tokenTables);$expect($nativeRequest('POST',$tokenPath.'?action=revoke&id='.$revoking['token_id'],[],true,$tenant)[0]===403&&$snapshot($tokenTables)===$before,'A parent-workspace user without time administration cannot revoke client links');
+$parentMemberQuery=$pdo->prepare('SELECT id FROM tenant_memberships WHERE user_id=? AND tenant_id=?');$parentMemberQuery->execute([$actor,$tenant]);$parentMember=(int)$parentMemberQuery->fetchColumn();
+$parentAccessQuery=$pdo->prepare('SELECT * FROM membership_module_access WHERE membership_id=? AND module_key="time"');$parentAccessQuery->execute([$parentMember]);$parentAccess=$parentAccessQuery->fetch(PDO::FETCH_ASSOC);
+try {
+    RBACResolver::grantModule($parentMember,'time','admin',[$tenant],$actor);$before=$snapshot($tokenTables);
+    $expect($nativeRequest('POST',$tokenPath.'?action=revoke&id='.$revoking['token_id'],[],true,$tenant)[0]===404&&$snapshot($tokenTables)===$before,'Even an authorized parent-workspace time administrator cannot revoke a child-workspace link');
+} finally {
+    $pdo->prepare('DELETE FROM membership_module_access WHERE membership_id=? AND module_key="time"')->execute([$parentMember]);
+    if($parentAccess)$pdo->prepare('INSERT INTO membership_module_access (`'.implode('`,`',array_keys($parentAccess)).'`) VALUES('.implode(',',array_fill(0,count($parentAccess),'?')).')')->execute(array_values($parentAccess));
+    RBACResolver::resetCache();
+}
+$before=$snapshot($tokenTables);
 $pdo->exec("CREATE TRIGGER cf_http_client_receipt BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.tenant_id=900021 AND NEW.event='time.tokenized_email.revoked' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic revoke receipt failure'; END IF; END");
 try {$expect($nativeRequest('POST',$tokenPath.'?action=revoke&id='.$revoking['token_id'],[],true,$workspace)[0]===503&&$snapshot($tokenTables)===$before,'Revocation receipt failure preserves the pending credential');}
 finally {$pdo->exec('DROP TRIGGER cf_http_client_receipt');}
