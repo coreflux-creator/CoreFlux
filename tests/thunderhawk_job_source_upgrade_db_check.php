@@ -43,7 +43,7 @@ try{
     $check($refuses(fn()=>thunderhawkJobSourceRecover($pdo,$before,$plan),'Original business values changed'),'recovery never overwrites a changed original job');$pdo->exec('ROLLBACK');
     $pdo->prepare('UPDATE _migrations SET sha256=? WHERE filename=?')->execute([str_repeat('0',64),$plan['filename']]);
     $check($refuses(fn()=>thunderhawkJobSourceRecover($pdo,$before,$plan),'receipt changed'),'recovery refuses altered migration provenance');$pdo->exec('ROLLBACK');
-    $pdo->exec('ALTER TABLE staffing_jobs ADD INDEX fixture_unreviewed(location_country)');
+    $pdo->exec('ALTER TABLE staffing_jobs ADD INDEX fixture_unreviewed(id)');
     $check($refuses(fn()=>thunderhawkJobSourceRecover($pdo,$before,$plan),'schema changed'),'recovery refuses an unreviewed index even when every original value is unchanged');
     $pdo->exec('ALTER TABLE staffing_jobs DROP INDEX fixture_unreviewed');
     thunderhawkJobSourceRecover($pdo,$before,$plan);
