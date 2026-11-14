@@ -40,6 +40,15 @@ $pdo->exec('UPDATE time_entries SET status="approved" WHERE id=2');
 $pdo->exec('UPDATE time_entries SET payroll_extracted_ref=222 WHERE id=2');
 $check(!$candidates()['rows'][1]['available']&&$fails(fn()=>$send($picked))&&$posts===$prePosts,'extraction after discovery prevents selected delivery');
 $pdo->exec('UPDATE time_entries SET payroll_extracted_ref=NULL WHERE id=2');
+$check($fails(fn()=>$send($picked))&&$posts===$prePosts,'a new explicit selection cannot bypass the prior unresolved send for this person');
+// Model a late provider receipt for the earlier lost-response case, then recover it by GET.
+// Selection does not cancel that attempt or weaken the delivery subject fence.
+$lateRow=integrationDeliveryGet($pdo,1,(int)$p['delivery']['id']);
+$latePayload=json_decode((string)decryptField($lateRow['payload_ct']),true,64,JSON_THROW_ON_ERROR);
+$lateHash=integrationDeliveryHash($latePayload['body']);$lateId='cpi_'.integrationDeliveryHash(['org-a',$lateHash]);
+$receipts[$lateId]=['id'=>$lateId,'organization_id'=>'org-a','content_hash'=>$lateHash,'state'=>'received_for_review',
+    'payroll_created'=>false,'source_time_reserved'=>false,'components'=>count($latePayload['body']['components'])];
+$check($reconcile($p)['state']==='delivered'&&$posts===$prePosts,'the prior uncertain input is resolved through its original receipt without resending');
 $savedMode=$mode;$mode='lost';$realTransport=$GLOBALS['__purepay_transport'];
 $GLOBALS['__purepay_transport']=static function($method,$url,$headers,$json)use($realTransport,$picked,$check){
     if($method==='POST')$check(json_decode($json,true,64,JSON_THROW_ON_ERROR)===$picked['packet'],'wire contains only the selected provider components, with no private selector');
