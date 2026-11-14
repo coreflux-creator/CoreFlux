@@ -1,0 +1,335 @@
+{
+  "date": "2026-11-14",
+  "status": "installed_native_intake_approval_quanta_return_accepted",
+  "application_commit": "329d9f8a97e0f28657a0ba27d1c29844b99a35fa",
+  "installer_commit": "d072e23ab15eb84f8f442869bd9b361368027a86",
+  "installer_ci": {
+    "run": 43587397891,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43587397891",
+    "jobs": [
+      {
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "migration_recovery_checks": 22,
+  "operation": "3a29146699597231e58b593e25621a40",
+  "installed_verification": {
+    "checked_at": "2026-11-14T11:04:49+00:00",
+    "passed": true,
+    "operation": "3a29146699597231e58b593e25621a40",
+    "candidate": "329d9f8a97e0f28657a0ba27d1c29844b99a35fa",
+    "installed_files_verified": 23,
+    "dependency_pins_verified": 448,
+    "schema": {
+      "preserved_tables": 382,
+      "preserved_rows": 35843,
+      "added_columns": 3,
+      "applied_migrations": 1
+    },
+    "current_tables": 382,
+    "current_rows": 35844,
+    "configuration_preserved": true,
+    "maintenance_restored": true,
+    "scheduler_preserved": true,
+    "diagnostic_absent": true,
+    "database_backup_retained": true,
+    "fresh_runtime_loaded": true,
+    "production_changed": false,
+    "hosted_verification_writes": 0
+  },
+  "initial_bundle_attempt": {
+    "matching_processes": [],
+    "state_exists": false,
+    "log_sha256": "a57cf41baec7a88bd56c1fb18bdd98cd6f828836e2d1825b7c11db38f497f177",
+    "terminal_failure": "missing private channel template before operation preparation",
+    "application_changes": false
+  },
+  "corrected_bundle_render": {
+    "rendered": true,
+    "php_syntax_valid": true,
+    "tools_verified": 11,
+    "hosted_writes": 0
+  },
+  "acceptance_script_sha256": "a09845890f783de4598456b64fb1a6094a19bfa4557bc64b0e8d79fc148d9e13",
+  "native_acceptance": {
+    "status": "finished",
+    "pid": 404391,
+    "started_at": "2026-11-14T11:05:33+00:00",
+    "candidate": "329d9f8a97e0f28657a0ba27d1c29844b99a35fa",
+    "source_entry_id": "5e72afa5-07b9-4681-bcc0-7e46379a205c",
+    "checks": [
+      "Original two-hour approval remains the source baseline",
+      "Exact invented source remains unimported",
+      "Native isolated sign-in succeeds for maker",
+      "Native isolated sign-in succeeds for reviewer",
+      "Real Thunderhawk workspace is inaccessible to the synthetic operator",
+      "Native source preview retains worker, placement and exactly 75 invented minutes",
+      "Preview identifies the preserved approved parent and actual Core week",
+      "Unconfirmed supplemental import is refused",
+      "Stale supplemental destination is refused",
+      "Refused intake leaves time_entries unchanged",
+      "Refused intake leaves staffing_timesheets unchanged",
+      "Refused intake leaves quanta_time_imports unchanged",
+      "Refused intake leaves time_approval_rates unchanged",
+      "Refused intake leaves time_accounting_handoffs unchanged",
+      "Confirmed native import creates exactly one new time row and review header",
+      "New supplement contains only the additional hours and requires review",
+      "New source inherits no original approval or rate",
+      "Imported source retains original provider identities",
+      "Exact import replay recognizes the original source",
+      "Import replay adds no duplicate in time_entries",
+      "Import replay adds no duplicate in staffing_timesheets",
+      "Import replay adds no duplicate in quanta_time_imports",
+      "Import replay adds no duplicate in time_accounting_handoffs",
+      "Importer cannot review their own time for approval",
+      "Whole-supplement review contains no original approved entries",
+      "Independent reviewer receives the current source decision",
+      "Stale approval review is refused",
+      "Independent native entry approval completes",
+      "Native source and supplemental header retain independent approval",
+      "Only the new 75 minutes at the retained 50 rate reach pending accounting intent",
+      "Repeated approval cannot create a second decision",
+      "Quanta status preview contains the independent Core approval",
+      "Quanta accepts the exact Core review status",
+      "Status delivery replay retains one receipt",
+      "Fresh provider readback matches the shared Core approval",
+      "Original approved header, entry and legacy evidence remain byte-for-byte unchanged",
+      "No schema changed during native acceptance",
+      "Every pre-existing Core business row and identity is preserved; only import telemetry may advance",
+      "No change in payroll_source_claims",
+      "No change in payroll_source_authorities",
+      "No change in payroll_provider_results",
+      "No change in payroll_runs",
+      "No change in payroll_line_items",
+      "No change in accounting_events",
+      "No change in accounting_journal_entries",
+      "No change in accounting_journal_entry_lines",
+      "No change in ap_payments",
+      "No change in billing_payments",
+      "Temporary maker credentials and grants are retired",
+      "Temporary reviewer credentials and grants are retired"
+    ],
+    "requests": [
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/login.php",
+        "status": 302,
+        "tenant": 2002
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/login.php",
+        "status": 302,
+        "tenant": 2002
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/api/quanta.php?action=preview",
+        "status": 403,
+        "tenant": 2
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/api/quanta.php?action=preview",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/api/quanta.php?action=import",
+        "status": 409,
+        "tenant": 2002
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/api/quanta.php?action=import",
+        "status": 409,
+        "tenant": 2002
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/api/quanta.php?action=import",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/api/quanta.php?action=import",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "maker",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_review",
+        "status": 403,
+        "tenant": 2002
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/staffing/api/timesheets.php?action=decision_review",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_review",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_commit",
+        "status": 409,
+        "tenant": 2002
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_commit",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/modules/time/api/entries.php?action=decision_commit",
+        "status": 409,
+        "tenant": 2002
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/api/quanta.php?action=time_review_preview",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/api/quanta.php?action=time_review_send",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/api/quanta.php?action=time_review_send",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "reviewer",
+        "method": "POST",
+        "path": "/api/quanta.php?action=time_review_preview",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "actor": "maker",
+        "method": "GET",
+        "path": "/logout.php",
+        "status": 302,
+        "tenant": 2002
+      },
+      {
+        "actor": "reviewer",
+        "method": "GET",
+        "path": "/logout.php",
+        "status": 302,
+        "tenant": 2002
+      }
+    ],
+    "actors": {
+      "maker": {
+        "user_id": 115,
+        "membership_id": 103
+      },
+      "reviewer": {
+        "user_id": 116,
+        "membership_id": 104
+      }
+    },
+    "passed": true,
+    "browser_test": false,
+    "import_completed": true,
+    "approval_completed": true,
+    "quanta_status_delivered": true,
+    "production_changed": false,
+    "arabella_changed": false,
+    "financial_execution": false,
+    "timesheet_id": 12,
+    "time_entry_id": 24,
+    "accounting_handoff_id": 4,
+    "status_delivery_id": 117,
+    "cookies_removed": {
+      "maker": true,
+      "reviewer": true
+    },
+    "actors_retired": {
+      "maker": true,
+      "reviewer": true
+    },
+    "completed_at": "2026-11-14T11:05:46+00:00"
+  },
+  "next_required": "Explicit reviewed source selection within the actual payroll period, preserving the prior reservation and missing legacy rate evidence, then held PurePayroll draft/result acceptance.",
+  "completion_limits": [
+    "No browser visual acceptance claimed",
+    "No full payroll round trip claimed",
+    "Other integration field, financial, portal, document and reconciliation requirements remain open",
+    "No production, Arabella, real payroll, payment or journal changes"
+  ]
+}

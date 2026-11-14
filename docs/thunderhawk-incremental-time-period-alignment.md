@@ -1,6 +1,16 @@
 # Incremental time and period alignment
 
-## Supplemental intake implementation — validated and prepared, November 14
+## November 14 — installed; native import, approval and Quanta return accepted
+
+Application `329d9f8a` is installed in the isolated pilot. Installer `d072e23a` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43587397891), including 22 populated migration, concurrent-writer and interrupted-recovery checks. The first private deployment bundle omitted the channel template and stopped before creating an operation or changing the application/database. The corrected, hash-verified bundle rendered successfully before its new installation attempt. Operation `3a29146699597231e58b593e25621a40` completed at 11:04:30 UTC. Independent verification matched 23 installed files and 448 dependency pins, preserved all 382 tables / 35,843 original rows, retained the private backup, restored ingress/schedules and found no diagnostic left behind.
+
+The same saved 75-minute Quanta source is now Core entry **24** in supplemental timesheet **12**, linked to primary **8** for November 9–15. Native HTTP acceptance passed **50 checks**: unconfirmed/stale intake refusal, exact import replay, original provider/person/placement IDs, independent approval, frozen rate `50.0000`, and the returned Quanta status. Maker 115 could not approve its own time; reviewer 116 approved the new source. Whole-supplement review included only the new entry; the actual entry-level decision reconciled its header and retained accounting handoff 4 as **pending**, wage cost **62.50**, without ledger dispatch. Status delivery 117 reached Quanta and fresh readback reported **accepted / unchanged**. Both temporary operators and their sessions were retired.
+
+Every pre-existing Core business row was preserved; only the allowed successful-import connection telemetry advanced. Primary 8 and time 17, the prior source reservation and held payroll result, all journals and payments remained unchanged. This is native-session acceptance, not browser visual acceptance or the full payroll round trip. [Installation and acceptance evidence](../deploy/thunderhawk-supplemental-time-acceptance-20261114.json).
+
+**Next:** the current PurePayroll input builder selects every approved entry for a person/date range. It has no explicit source selection, so the original reserved entry 17—with missing original rate evidence—cannot simply be mixed into the new packet. Implement a reviewed selection of the new entry inside the real payroll period, retaining selection and owner/source checks through send/recovery. Do not shorten or shift the payroll period to avoid the old source, reconstruct its missing approval evidence, or release its existing reservation. Then continue entry 24 through held input, reservation, draft and returned result.
+
+## Supplemental intake preparation — historical checkpoint, November 14
 
 The current source resolves the same destination in preview and locked import. New Quanta source for an approved Core week requires an explicit review of a separate supplemental timesheet, linked to the preserved primary. A batch creates one supplement per primary, with its own entries, independent approval, frozen economics and accounting intent. Source changes, destination changes, locked periods and ambiguous overlapping periods invalidate intake. Exact source replay creates no additional review unit. Corrections within a supplement retain that unit.
 
@@ -10,11 +20,11 @@ Source `329d9f8a` passed all eleven [CI jobs](https://github.com/coreflux-creato
 
 The read-only pilot preflight matched all 463 installed runtime pins and private configuration. Header 8 is still approved for two hours; the saved 75-minute source has no Core import and the supplemental schema is absent. A 23-file package with 448 retained dependency pins, one migration and CI-built assets is prepared. [Pinned preparation evidence](../deploy/thunderhawk-supplemental-time-preparation-20261114.json). The preceding accounting-production timing reply made no integration change.
 
-This source is **not installed**. Next rehearse the owner-preserving schema installation and explicit recovery: the migration changes person/week uniqueness while retaining every original row. After guarded installation and native runtime readback, continue the same saved source through independent Core review and the held provider round trip. Hosted/browser acceptance, financial execution and the full integration outcome are not established by this preparation.
+At that preparation checkpoint, the source was **not installed**. The installation and native acceptance above supersede that state. The original preparation did not establish hosted/browser acceptance, financial execution or the full integration outcome.
 
 The November 14 refreshed cross-system test has reached a concrete intake defect. It has **not completed the updated round trip**. Evidence: [source capture and native Core diagnostic](../deploy/thunderhawk-updated-roundtrip-period-conflict-20261114.json).
 
-## Verified state
+## Initial diagnostic state — retained history
 
 Read-only inspection matched all 463 current Core application/dependency files. Existing P-387 / PL-902 is active. Core time 17 remains approved and reserved for the prior $100 held draft; its original rows were preserved. The new retained-rate reader refuses to use that older approval as fresh source because it lacks the original rate hash. No hash or historical approval was fabricated.
 
@@ -42,4 +52,4 @@ The existing `quantaPreviewRows` only checks source/identity/import history. It 
 3. Reconcile the intended time calendar with provider source weeks and payroll schedule periods. Any effective calendar change must retain historical periods and reject conflicting generated/consumed work. Do not rewrite earlier headers merely to make this fixture fit.
 4. Continue **this same saved 75-minute source**, rather than recapturing it or bypassing date validation, through Core review, returned Quanta status, source-aware PurePayroll input/reservation and a held draft/result. Verify replay, changed-request refusal, company isolation and exact source amount.
 
-The source is left approved in Quanta and unimported in Core. Its note explicitly identifies invented work with no real payroll payable. No real payroll, payments, financial postings, production cutover or Arabella changes occurred. This diagnostic is native HTTP evidence, not visual browser acceptance. The full integration goal remains active.
+At the initial diagnostic, the source was approved in Quanta and unimported in Core; the accepted import and return above supersede that state. Its note explicitly identifies invented work with no real payroll payable. No real payroll, payments, financial postings, production cutover or Arabella changes occurred. This diagnostic is native HTTP evidence, not visual browser acceptance. The full integration goal remains active.
