@@ -43,5 +43,18 @@ test('response mismatch does not announce success or allow a blind repeat',async
 test('cancel and escape do not send a decision',async()=>{reset();const tree=await open();try{find(tree,'time-decision-cancel')[0].props.onClick();find(tree,'time-decision-review')[0].props.onKeyDown({key:'Escape',preventDefault(){}});assert.equal(closed,2);assert.equal(calls.length,1);}finally{act(()=>tree.unmount());}});
 
 for(const matches of [true,false])test(`CSV review exposes retained evidence and source match ${matches}`,async()=>{reset();post=async()=>{const value=review();value.entries[0].csv_source_evidence={import_id:42,source_row:3,matches_source:matches,external_approval:{approved_by_email:'manager@example.invalid',approved_at:'2026-10-20T12:00:00Z',reference:'External sheet 27'}};return value;};const tree=await open();try{
- const source=find(tree,'time-csv-source-1')[0];assert.match(text(source),matches?/Matches retained CSV row/:/Time differs from retained CSV row/);assert.match(text(source),/manager@example.invalid/);assert.match(text(source),/External sheet 27/);assert.match(text(source),/independent Core decision/);assert.equal(source.findByType('a').props.href,'/modules/time/api/csv_import.php?action=source&id=42');assert.equal(calls.length,1);assert.equal(done.length,0);
+ const source=find(tree,'time-csv-source-1')[0];assert.match(text(source),matches?/Matches retained CSV row/:/Time differs from retained CSV row/);assert.match(text(source),/manager@example.invalid/);assert.match(text(source),/External sheet 27/);assert.match(text(source),/independent Core decision/);assert.match(text(source.findByType('button')),/Download original CSV · row 3/);assert.equal(calls.length,1);assert.equal(done.length,0);
 }finally{act(()=>tree.unmount());}});
+
+test('retained CSV download uses the reviewed workspace and verifies exact bytes',async()=>{
+ const original=globalThis.fetch,blob=new Blob(['Original source\n']);const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('');let input;
+ try {globalThis.fetch=async(...args)=>{input=args;return new Response(blob,{headers:{'Content-Type':'text/csv','X-CoreFlux-Tenant-Id':'2002'}});};
+ const result=await module.exports.fetchTimeCsvSource({import_id:42,source_hash:digest},2002,()=>true);assert.equal(await result.text(),'Original source\n');assert.equal(input[1].headers['X-CoreFlux-Tenant-Id'],'2002');assert.equal(input[1].redirect,'error');
+ }finally{globalThis.fetch=original;}
+});
+for(const mismatch of ['workspace','type','hash','changed'])test(`CSV download refuses ${mismatch} mismatch`,async()=>{
+ const original=globalThis.fetch,blob=new Blob(['Original source\n']);const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('');let current=true;
+ try {globalThis.fetch=async()=>{if(mismatch==='changed')current=false;return new Response(blob,{headers:{'Content-Type':mismatch==='type'?'text/html':'text/csv','X-CoreFlux-Tenant-Id':mismatch==='workspace'?'999':'2002'}});};
+ await assert.rejects(()=>module.exports.fetchTimeCsvSource({import_id:42,source_hash:mismatch==='hash'?'0'.repeat(64):digest},2002,()=>current));
+ }finally{globalThis.fetch=original;}
+});

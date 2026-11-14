@@ -131,7 +131,7 @@ if ($method==='GET' && $action==='source') {
         if (!$row) api_error('Import source not found in this workspace.',404);
         $source=decryptField(base64_decode($row['source_ct'],true));
         if (!is_string($source) || !hash_equals($row['source_hash'],hash('sha256',$source))) throw new RuntimeException('Import source verification failed.',503);
-        header('Content-Type: text/csv; charset=utf-8');header('Content-Disposition: attachment; filename="time-import-source.csv"');header('Cache-Control: private, no-store');echo $source;exit;
+        header('Content-Type: text/csv; charset=utf-8');header('Content-Disposition: attachment; filename="time-import-source.csv"');header('Cache-Control: private, no-store');header('X-CoreFlux-Tenant-Id: '.(int)$ctx['tenant_id']);echo $source;exit;
     } catch(Throwable $e) {timeCsvApiFailure($e);}
 }
 if ($method==='POST' && in_array($action,['dry_run','commit'],true)) {

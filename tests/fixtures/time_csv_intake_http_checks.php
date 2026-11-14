@@ -31,8 +31,9 @@ $expect($status===200&&$import['imported_count']===2&&$import['requires_independ
 $first=$read('time_entries',$csvIds[0]);$second=$read('time_entries',$csvIds[1]);$source=$read('time_csv_imports',$import['import_id']);
 $expect($first['status']==='pending_review'&&$first['approved_by_user_id']===null&&$first['approved_at']===null&&$first['rate_snapshot_id']===null&&(int)$first['tenant_id']===$workspace,'CSV importer is recorded as creator without inventing approval or changing time ownership');
 $expect(!str_contains($source['source_ct'],'external-source')&&decryptField(base64_decode($source['source_ct'],true))===$csv&&hash('sha256',$csv)===$source['source_hash'],'CSV source bytes are retained encrypted with an exact source hash');
-[$status,,,$download]=$nativeRequest('GET',$csvPath.'?action=source&id='.$import['import_id'],null,true,$workspace);
+[$status,,,$download,$sourceHeaders]=$nativeRequest('GET',$csvPath.'?action=source&id='.$import['import_id'],null,true,$workspace);
 $expect($status===200&&$download===$csv,'Original CSV can be retrieved through its authenticated workspace');
+$expect(($sourceHeaders['x-coreflux-tenant-id']??null)===(string)$workspace&&str_starts_with($sourceHeaders['content-type']??'','text/csv'),'CSV source response identifies its exact workspace and file type for the reviewed browser download');
 $pdo->prepare('UPDATE time_csv_imports SET source_hash=? WHERE id=?')->execute([str_repeat('0',64),$import['import_id']]);
 try {$expect($nativeRequest('GET',$csvPath.'?action=source&id='.$import['import_id'],null,true,$workspace)[0]===503,'CSV download refuses source bytes that do not match their retained fingerprint');}
 finally {$pdo->prepare('UPDATE time_csv_imports SET source_hash=? WHERE id=?')->execute([$source['source_hash'],$import['import_id']]);}

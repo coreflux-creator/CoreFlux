@@ -110,6 +110,11 @@ try {
         $ch=curl_init('http://127.0.0.1:'.$port.$path);
         $headers=['Accept: application/json','X-CoreFlux-Tenant-Id: '.$pin];
         $options=[CURLOPT_RETURNTRANSFER=>true,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_CONNECTTIMEOUT=>1,CURLOPT_TIMEOUT=>20,CURLOPT_CUSTOMREQUEST=>$method];
+        $responseHeaders=[];
+        $options[CURLOPT_HEADERFUNCTION]=static function($handle,string $line)use(&$responseHeaders):int {
+            if (str_contains($line,':')) {[$name,$value]=explode(':',$line,2);$name=strtolower(trim($name));if(in_array($name,['content-type','x-coreflux-tenant-id'],true))$responseHeaders[$name]=trim($value);}
+            return strlen($line);
+        };
         if ($body!==null) { $options[CURLOPT_POSTFIELDS]=$form?http_build_query($body):json_encode((object)$body,JSON_THROW_ON_ERROR); $headers[]='Content-Type: '.($form?'application/x-www-form-urlencoded':'application/json'); }
         if ($signed) { $options[CURLOPT_COOKIEFILE]=$cookie; $options[CURLOPT_COOKIEJAR]=$cookie; }
         $options[CURLOPT_HTTPHEADER]=$headers; curl_setopt_array($ch,$options);
@@ -118,7 +123,7 @@ try {
         $data=is_string($raw)?json_decode($raw,true):null;
         if ($path!=='/fixture-ready') $report['requests'][]=['method'=>$method,'path'=>preg_replace('/([?&]t=)[^&]+/','$1[redacted]',$path),'status'=>$status,'pinned_tenant'=>$pin,
             'error'=>is_array($data)?($data['error']??null):null];
-        return [$status,$data,$location,$raw];
+        return [$status,$data,$location,$raw,$responseHeaders];
     };
     $ready=false;
     for ($i=0;$i<40;$i++) { if ($request('GET','/fixture-ready',null,false)[0]===200) { $ready=true; break; } if (!proc_get_status($server)['running']) throw new RuntimeException('Native HTTP server stopped'); usleep(100000); }

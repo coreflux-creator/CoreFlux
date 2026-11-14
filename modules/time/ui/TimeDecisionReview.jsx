@@ -4,6 +4,25 @@ import { api, bustApiCachePrefix, getPinnedTenantId } from '../../../dashboard/s
 const selectionKey = ids => JSON.stringify([...new Set(ids.map(Number))].sort((a, b) => a - b));
 const sameWorkspace = id => !getPinnedTenantId() || String(getPinnedTenantId()) === String(id);
 
+export async function fetchTimeCsvSource(evidence, workspace, isCurrent) {
+  if (!isCurrent()) throw new Error('Return to the reviewed workspace before downloading its source.');
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(`/modules/time/api/csv_import.php?action=source&id=${evidence.import_id}`, {
+      credentials: 'include', redirect: 'error', signal: controller.signal,
+      headers: { 'X-CoreFlux-Tenant-Id': String(workspace) },
+    });
+    if (!response.ok || response.headers.get('X-CoreFlux-Tenant-Id') !== String(workspace)
+      || !response.headers.get('Content-Type')?.startsWith('text/csv')) throw new Error('The original CSV could not be verified in this workspace. Reload the review.');
+    const blob = await response.blob();
+    if (blob.size > 10 * 1024 * 1024) throw new Error('The retained CSV exceeds the source size limit.');
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())), b => b.toString(16).padStart(2, '0')).join('');
+    if (hash !== evidence.source_hash) throw new Error('The downloaded CSV differs from the reviewed source.');
+    if (!isCurrent()) throw new Error('The review workspace changed during download.');
+    return blob;
+  } finally { clearTimeout(timer); }
+}
+
 export default function TimeDecisionReview({ kind, ids, decision, reason: initialReason = '', onClose, onDecided }) {
   const [review, setReview] = useState(null);
   const [reason, setReason] = useState(initialReason);
@@ -14,7 +33,14 @@ export default function TimeDecisionReview({ kind, ids, decision, reason: initia
   const pending = useRef(false);
   const dialog = useRef(null);
   const key = `${kind}:${decision}:${selectionKey(ids)}`;
+  const activeKey = useRef(key); activeKey.current = key;
+  const mounted = useRef(false);
   const endpoint = kind === 'weeks' ? '/modules/staffing/api/timesheets.php' : '/modules/time/api/entries.php';
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -38,6 +64,19 @@ export default function TimeDecisionReview({ kind, ids, decision, reason: initia
   }, []);
 
   const ready = review?.requestKey === key && sameWorkspace(review.workspace_id);
+  const downloadSource = async evidence => {
+    if (!ready || pending.current) return;
+    const current = () => mounted.current && activeKey.current === key && sameWorkspace(review.workspace_id);
+    pending.current = true; setBusy(true); setError('');
+    try {
+      const blob = await fetchTimeCsvSource(evidence, review.workspace_id, current);
+      if (!current()) return;
+      const url = URL.createObjectURL(blob), link = document.createElement('a');
+      link.href = url; link.download = `time-import-${evidence.import_id}.csv`; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) { if (current()) setError(e.message || 'The source download failed.'); }
+    finally { pending.current = false; if (mounted.current) setBusy(false); }
+  };
   const save = async event => {
     event.preventDefault();
     if (!ready || !sameWorkspace(review.workspace_id) || busy || pending.current || (decision === 'reject' && !reason.trim())) return;
@@ -84,7 +123,7 @@ export default function TimeDecisionReview({ kind, ids, decision, reason: initia
             <td>{String(row.source || 'manual_entry').replaceAll('_', ' ')}{row.csv_source_evidence && <div data-testid={`time-csv-source-${row.id}`}>
               <p>{row.csv_source_evidence.matches_source ? 'Matches retained CSV row' : 'Time differs from retained CSV row'}</p>
               {row.csv_source_evidence.external_approval && <p>External approval reported by {row.csv_source_evidence.external_approval.approved_by_email} · {row.csv_source_evidence.external_approval.approved_at}<br />Reference: {row.csv_source_evidence.external_approval.reference}. Requires your independent Core decision.</p>}
-              <a href={`/modules/time/api/csv_import.php?action=source&id=${row.csv_source_evidence.import_id}`}>Download original CSV · row {row.csv_source_evidence.source_row}</a>
+              <button type="button" className="btn btn--ghost" disabled={busy} onClick={() => downloadSource(row.csv_source_evidence)}>Download original CSV · row {row.csv_source_evidence.source_row}</button>
             </div>}</td><td>{row.will_change ? (decision === 'approve' ? 'Approve' : 'Return for correction') : 'Retain earlier approval'}</td>
           </tr>)}</tbody>
         </table></div>
