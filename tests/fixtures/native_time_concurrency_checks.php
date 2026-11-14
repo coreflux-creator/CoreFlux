@@ -2,7 +2,7 @@
 /** Independent connections must observe committed time, identities and directory policy. */
 $nativeTimeState=static function()use($pdo):array {
     $out=[];
-    foreach(['time_entries','staffing_timesheets','time_periods','artifact_objects','artifact_events','artifact_relationships','core_record_numbers','quanta_time_imports','audit_log']as$table) {
+    foreach(['time_entries','time_approval_rates','time_accounting_handoffs','staffing_timesheets','time_periods','artifact_objects','artifact_events','artifact_relationships','core_record_numbers','quanta_time_imports','audit_log']as$table) {
         $rows=$pdo->query('SELECT * FROM '.$table)->fetchAll(PDO::FETCH_ASSOC);$encoded=array_map(static fn($r)=>json_encode($r,JSON_THROW_ON_ERROR),$rows);sort($encoded);$out[$table]=hash('sha256',json_encode($encoded,JSON_THROW_ON_ERROR));
     }
     return $out;

@@ -18,18 +18,15 @@ $a = function (string $name, bool $ok) use (&$pass, &$fail): void {
 $read = fn (string $p) => (string) file_get_contents($p);
 
 echo "Event emitter — per-assignment breakdown\n";
-$lib = $read(__DIR__ . '/../modules/staffing/lib/timesheets.php');
-$a('GROUP BY keeps placements and dimension versions separate',
-    str_contains($lib, 'te.placement_id, te.dimension_snapshot_hash, {$engagementExpr}'));
-$a('referral fee is frozen when time is approved',
-    str_contains($lib, 'timeNativeApprovalSnapshot(')
-    && str_contains($lib, 'timeNativeWriteApproval(')
-    && str_contains($read(__DIR__ . '/../modules/time/lib/native_review.php'), "'referral_fee_per_hour'=>\$referralFee")
-    && str_contains($lib, "JSON_EXTRACT(te.dimension_snapshot_json, '$.referral_fee_per_hour')"));
+$lib = $read(__DIR__ . '/../modules/time/lib/accounting_handoff.php');
+$economics=$read(__DIR__.'/../modules/time/lib/approval_economics.php');
+$a('groups preserve placement and approved dimension versions',
+    str_contains($lib,'$key=$entry[\'placement_id\']') && str_contains($lib,"['dimension_snapshot_hash']"));
+$a('referral payout is read from the approved evidence',str_contains($economics,'$snapshot[\'referral_fee_per_hour\']'));
 $postingEngine = (string) file_get_contents(__DIR__ . '/../core/posting_engine/process.php');
 $a('zero-value optional staffing journal lines are omitted',
     str_contains($postingEngine, 'if ($debit == 0.0 && $credit == 0.0) continue;'));
-$a('LEFT JOIN placements for engagement_type',    str_contains($lib, 'LEFT JOIN placements pl'));
+$a('posting uses archived rates without a mutable placement-rate join',str_contains($lib,'timeApprovedRate($entry,$tenantId)') && !str_contains($lib,'JOIN placement_rates'));
 $a('one event per timesheet and placement',       str_contains($lib, 'foreach ($groups as $g)') && str_contains($lib, "':placement:' . \$placementId"));
 $a('payload includes engagement_type',            str_contains($lib, "'engagement_type' => \$engagementType"));
 $a('payload includes is_w2 flag',                 str_contains($lib, "'is_w2'") && str_contains($lib, "in_array(\$engagementType, ['w2','temp_to_perm'], true)"));
@@ -37,15 +34,11 @@ $a('payload includes is_1099_or_c2c flag',        str_contains($lib, "'is_1099_o
 $a('payload includes is_internal flag',           str_contains($lib, "'is_internal'") && str_contains($lib, "=== 'internal' ? 1 : 0"));
 $a('payload includes is_referral flag',           str_contains($lib, "'is_referral'") && str_contains($lib, "=== 'referral' ? 1 : 0"));
 $a('source identity includes placement and type', str_contains($lib, "':placement:' . \$placementId . ':' . \$engagementType"));
-$a('event carries assignment dimensions',         str_contains($lib, 'staffingAssignmentDimensionContext') && str_contains($lib, "'dimensions'      => \$dimensionContext['dimensions']"));
-$a('revenue and cost respect entry flags',        str_contains($lib, 'te.billable = 1') && str_contains($lib, 'te.payable <> 1'));
-$a('loaded labor costs are included',             str_contains($lib, 'pr.workers_comp_pct') && str_contains($lib, 'pr.c2c_overhead_pct'));
-$a('W2 load is emitted as distinct cost components',
-    str_contains($lib, 'AS wage_cost')
-    && str_contains($lib, 'AS employer_load_cost')
-    && str_contains($lib, 'AS workers_comp_cost')
-    && str_contains($lib, 'AS benefits_cost')
-    && str_contains($lib, 'AS other_direct_cost'));
+$a('event carries assignment dimensions',         str_contains($lib, "'dimensions'      => \$dimensionContext['dimensions']"));
+$a('revenue and cost respect entry flags',str_contains($economics,"['billable']") && str_contains($economics,"['payable']"));
+$a('loaded labor costs are included',str_contains($economics,"['workers_comp_pct']") && str_contains($economics,"['c2c_overhead_pct']"));
+$a('W2 load retains distinct cost components',str_contains($economics,"['wage_cost']") && str_contains($economics,"['employer_load_cost']") && str_contains($economics,"['workers_comp_cost']") && str_contains($economics,"['benefits_cost']") && str_contains($economics,"['other_direct_cost']"));
+
 
 echo "\nSystem accounts — staffing-specific\n";
 $sa = $read(__DIR__ . '/../core/accounting/system_accounts.php');

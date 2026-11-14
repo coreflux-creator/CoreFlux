@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/multi_period.php';
+require_once __DIR__.'/../../time/lib/approval_economics.php';
 
 /**
  * Resolve the accrual actually posted for a generated document line. A feature
@@ -104,7 +105,6 @@ function accountingSourceAccrualParts(int $tenantId, array $line, string $side, 
         AND source_record_id IN (:segment, :assignment, :legacy)');
     $parts = [];
     $missing = 0;
-    $rateStmt = $pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id = :t AND id = :id');
     foreach ($entries as $entry) {
         $snapshot = json_decode((string) ($entry['dimension_snapshot_json'] ?? ''), true) ?: [];
         $engagement = (string) ($snapshot['engagement_type'] ?? $entry['engagement_type']);
@@ -134,9 +134,7 @@ function accountingSourceAccrualParts(int $tenantId, array $line, string $side, 
         $journalParts = $readJournal((int) $events[0]['journal_entry_id']);
         if (count($journalParts) !== 1) throw new RuntimeException('The staffing accrual has multiple clearing dimensions; review the source journal.');
         $part = $journalParts[0];
-        $rateStmt->execute(['t' => effectiveTenantIdForModule('placements', $tenantId) ?? $tenantId, 'id' => $entry['rate_snapshot_id']]);
-        $rate = $rateStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$rate) throw new RuntimeException('An approved rate snapshot is missing from this source.');
+        $rate = timeApprovedRate($entry,$tenantId);
         $multiplier = match ((string) $entry['hour_type']) {
             'overtime' => (float) ($rate['ot_multiplier'] ?? 1.5),
             'doubletime' => (float) ($rate['dt_multiplier'] ?? 2),

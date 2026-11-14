@@ -14,7 +14,7 @@
     };
     $insert=static function(string $table,array $row)use($pdo):int {$pdo->prepare('INSERT INTO '.$table.' (`'.implode('`,`',array_keys($row)).'`) VALUES('.implode(',',array_fill(0,count($row),'?')).')')->execute(array_values($row));return (int)$pdo->lastInsertId();};
     $read=static function(string $table,int $id)use($pdo):array {$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE id=?');$q->execute([$id]);return $q->fetch(PDO::FETCH_ASSOC);};
-    $tables=array_values(array_unique([...$graphTables,...$financialTables,'time_entries','time_periods','staffing_timesheets','artifact_objects','artifact_events','artifact_relationships','audit_log','core_record_numbers']));
+    $tables=array_values(array_unique([...$graphTables,...$financialTables,'time_entries','time_periods','staffing_timesheets','time_approval_rates','time_accounting_handoffs','artifact_objects','artifact_events','artifact_relationships','audit_log','core_record_numbers']));
     if($pdo->query('SELECT id FROM tenants WHERE id=900021')->fetchColumn())throw new RuntimeException('Approval fixture already exists');
     $insert('tenants',['id'=>$workspace,'name'=>'Synthetic approval alignment','parent_id'=>$tenant,'tenant_type'=>'sub','is_active'=>1,'is_simulation'=>1]);
     try {
@@ -81,6 +81,9 @@
         $pdo->exec("CREATE TRIGGER cf_http_approval_receipt BEFORE INSERT ON audit_log FOR EACH ROW BEGIN IF NEW.tenant_id=900021 AND NEW.event='time.timesheet.approved' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic late weekly receipt failure'; END IF; END");
         try {$refuse(fn()=>$apply($actor,$review),'Late weekly receipt failure restores entries, header, artifacts and earlier approval receipts');}
         finally {$pdo->exec('DROP TRIGGER cf_http_approval_receipt');}
+        $pdo->exec("CREATE TRIGGER cf_http_handoff_receipt BEFORE INSERT ON time_accounting_handoffs FOR EACH ROW BEGIN IF NEW.tenant_id=900021 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic durable handoff failure'; END IF; END");
+        try {$refuse(fn()=>$apply($actor,$review),'A handoff storage failure rolls back the approval, private rate archive and required receipts');}
+        finally {$pdo->exec('DROP TRIGGER cf_http_handoff_receipt');}
         $external=['header_approved_via'=>'external_email','entry_approved_via'=>'tokenized_client_email','external_approver_email'=>'approval-preparer@example.invalid'];
         $review=$plan(null);$refuse(fn()=>$apply(null,$review,$external),'An external link cannot let the preparer approve its own time');
         $external['external_approver_email']='independent-client@example.invalid';$scopeBefore=currentTenantId();
@@ -89,6 +92,7 @@
         $expect($done['status']==='approved'&&$done['approved_by_user_id']===null&&$done['client_approver_email']===$external['external_approver_email']&&$header['status']==='approved','External weekly approval retains its actual email actor and original workspace');
         $expect(currentTenantId()===$scopeBefore&&$read('time_entries',$ids[0])===$frozen,'Explicit weekly approval restores the caller scope and retains the independently approved sibling');
         $expect($snapshot($financialTables)===$financialBefore,'Entry and weekly approval services create no financial events, journals, payments or payroll runs');
+        require __DIR__.'/time_approval_economics_http_checks.php';
         require __DIR__.'/time_decision_review_http_checks.php';
         require __DIR__.'/time_client_token_http_checks.php';
         require __DIR__.'/time_weekly_email_http_checks.php';

@@ -45,17 +45,18 @@ $assert('assignment owners outrank commission-attribution fallbacks',
     && str_contains($dimensions, "?: (trim((string) (\$placement['account_manager_name'] ?? '')) ?: (\$owners['account_manager'] ?? null))"));
 
 $timesheets = $read(__DIR__ . '/../modules/staffing/lib/timesheets.php');
+$timesheets .= $read(__DIR__.'/../modules/time/lib/accounting_handoff.php');
 $assert('approved-hour event is assignment-grained',
     str_contains($timesheets, "':placement:' . \$placementId")
-    && str_contains($timesheets, 'te.placement_id, te.dimension_snapshot_hash'));
+    && str_contains($timesheets, '$key=$entry[\'placement_id\']'));
 $assert('approved-hour event is dimension-versioned',
     str_contains($timesheets, "':segment:' . substr(\$snapshotHash, 0, 24)"));
 $assert('event posts in accounting tenant',
-    str_contains($timesheets, "effectiveTenantIdForModule('accounting'")
-    && str_contains($timesheets, 'accountingProcessEvent($accountingTenantId'));
+    str_contains($timesheets, "lockOwner('accounting')")
+    && str_contains($timesheets, 'accountingProcessEvent($owner'));
 $assert('legacy posted bucket cannot double book',
-    str_contains($timesheets, '$legacyPosted')
-    && str_contains($timesheets, "AND status = 'posted'"));
+    str_contains($timesheets, '$legacy->fetchColumn()')
+    && str_contains($timesheets, 'AND status="posted"'));
 $assert('event payload carries dimensions and vendor',
     str_contains($timesheets, "'dimensions'      => \$dimensionContext['dimensions']")
     && str_contains($timesheets, "'vendor_dimension'=> \$dimensionContext['vendor_dimension']"));

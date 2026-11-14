@@ -1,0 +1,25 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__.'/../modules/staffing/lib/dimension_snapshot.php';
+require_once __DIR__.'/../modules/time/lib/approval_economics.php';
+$count=0;
+$check=static function(bool $ok,string $label)use(&$count):void{if(!$ok)throw new RuntimeException($label);$count++;};
+$entry=['tenant_id'=>10,'id'=>20,'person_id'=>30,'placement_id'=>40,'period_id'=>50,'timesheet_id'=>60,'work_date'=>'2026-10-05','hours'=>8,'category'=>'regular_billable','hour_type'=>'regular','billable'=>1,'payable'=>1];
+$rate=['bill_rate'=>98,'pay_rate'=>65,'ot_multiplier'=>1.5,'dt_multiplier'=>2,'adder_pct'=>0.1,'workers_comp_pct'=>0.02,'benefits_load_pct'=>0.03,'other_cost_per_hour'=>2,'c2c_overhead_pct'=>0.05];
+$w2=['engagement_type'=>'w2'];
+$regular=timeApprovedEntryAmounts($entry,$rate,$w2);
+foreach(['revenue'=>784,'wage_cost'=>520,'employer_load_cost'=>52,'workers_comp_cost'=>10.4,'benefits_cost'=>15.6,'other_direct_cost'=>16,'cost'=>614] as $field=>$expected) $check(abs($regular[$field]-$expected)<0.000001,'Eight-hour W2 '.$field);
+$ot=timeApprovedEntryAmounts(array_replace($entry,['hour_type'=>'overtime']),$rate,$w2);
+$check($ot['revenue']===1176.0&&$ot['wage_cost']===780.0&&$ot['other_direct_cost']===16.0,'Overtime multiplies hourly bill/pay but not flat costs');
+$nonbill=timeApprovedEntryAmounts(array_replace($entry,['billable'=>0]),$rate,$w2);
+$check($nonbill['revenue']===0.0&&$nonbill['cost']===$regular['cost'],'Nonbillable payable time retains labor costs');
+$unpaid=timeApprovedEntryAmounts(array_replace($entry,['payable'=>0]),$rate,$w2);
+$check($unpaid['cost']===0.0&&$unpaid['revenue']===784.0,'Payability and billability are independent');
+$referral=timeApprovedEntryAmounts(array_replace($entry,['hour_type'=>'overtime']),$rate,['engagement_type'=>'referral','referral_fee_per_hour'=>'20.0000']);
+$check($referral['cost']===160.0&&$referral['revenue']===1176.0,'Referral payout remains flat per hour during overtime');
+$c2c=timeApprovedEntryAmounts($entry,$rate,['engagement_type'=>'c2c']);
+$check($c2c['cost']===562.0&&$c2c['wage_cost']===0.0,'C2C includes overhead without creating employee wages');
+$hash=timeApprovedEntryFactsHash($entry);
+foreach(['hours'=>9,'tenant_id'=>11,'id'=>21,'person_id'=>31,'placement_id'=>41,'period_id'=>51,'timesheet_id'=>61,'work_date'=>'2026-10-06','category'=>'holiday','hour_type'=>'overtime','billable'=>0,'payable'=>0] as $field=>$value) $check($hash!==timeApprovedEntryFactsHash(array_replace($entry,[$field=>$value])),'Approved evidence binds '.$field);
+$check($hash===timeApprovedEntryFactsHash($entry+['status'=>'locked','bill_extracted_ref'=>'invoice:1']),'Extraction markers do not rewrite approved facts');
+echo $count." approved-economics checks passed.\n";

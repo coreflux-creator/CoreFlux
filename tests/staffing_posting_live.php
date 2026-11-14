@@ -29,6 +29,9 @@ $pdo->prepare(
      VALUES (9401, :tenant_id, 9401, '2026-01-05', '2026-01-11', 'approved', 7)"
 )->execute(['tenant_id' => $tenantId]);
 
+// Historical fixture predates the private archive but retains the exact rate hash.
+$rateQuery=$pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND id=9401');
+$rateQuery->execute([$tenantId]);$historicalRate=$rateQuery->fetch(PDO::FETCH_ASSOC);
 $insert = $pdo->prepare(
     "INSERT INTO time_entries
         (id, tenant_id, placement_id, person_id, period_id, timesheet_id,
@@ -57,6 +60,7 @@ foreach ([
         'engagement_type' => 'w2',
         'referral_fee_per_hour' => null,
         'missing' => [],
+        'source_rate_hash'=>hash('sha256',staffingDimensionSnapshotCanonicalJson($historicalRate)),
     ];
     $json = staffingDimensionSnapshotCanonicalJson($snapshot);
     $insert->execute([
@@ -69,6 +73,14 @@ foreach ([
 // A later master-data edit must not reclassify the already approved week.
 $pdo->prepare("UPDATE placements SET engagement_type = 'c2c' WHERE tenant_id = :tenant_id AND id = 9401")
     ->execute(['tenant_id' => $tenantId]);
+$pdo->exec("CREATE TRIGGER cf_handoff_segment_failure BEFORE INSERT ON accounting_events FOR EACH ROW BEGIN IF NEW.source_module='staffing' AND JSON_UNQUOTE(JSON_EXTRACT(NEW.payload,'$.dimensions.branch'))='West' AND JSON_EXTRACT(NEW.payload,'$.timesheet_id')=9401 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic second-segment failure'; END IF; END");
+try {
+    $failure=staffingEmitWorkerHoursApprovedEvent($tenantId,9401);
+    $q=$pdo->prepare('SELECT COUNT(*) FROM accounting_events WHERE tenant_id=? AND source_record_id LIKE "timesheet:9401:%"');$q->execute([$tenantId]);
+    if ($failure===null || (int)$q->fetchColumn()!==0) throw new RuntimeException('A failed second segment left a partial accounting result');
+    $q=$pdo->prepare('SELECT status,attempts,last_error FROM time_accounting_handoffs WHERE tenant_id=? AND timesheet_id=9401');$q->execute([$tenantId]);$handoff=$q->fetch(PDO::FETCH_ASSOC);
+    if (!$handoff || $handoff['status']!=='failed' || (int)$handoff['attempts']!==1 || !$handoff['last_error']) throw new RuntimeException('The failed delivery lost its durable retry record');
+} finally {$pdo->exec('DROP TRIGGER cf_handoff_segment_failure');}
 $error = staffingEmitWorkerHoursApprovedEvent($tenantId, 9401);
 if ($error !== null) throw new RuntimeException($error);
 

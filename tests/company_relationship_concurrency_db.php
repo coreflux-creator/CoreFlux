@@ -48,6 +48,10 @@ function genericTimeRaceWrite(array $input): array
     setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('time');
     $user=['id'=>$input['actor']];$authorize=static function(int $person):void {};
     $result=match($input['operation']??'patch') {
+        'accounting_dispatch'=>(static function()use($input):array {
+            require_once __DIR__.'/../modules/time/lib/accounting_handoff.php';
+            return ['warning'=>timeAccountingHandoffDispatch($input['workspace'],$input['timesheet_id'])];
+        })(),
         'csv_import'=>timeCsvImportCommit($input['workspace'],$input['actor'],$input['csv'],null,$input['options'],$input['revision']),
         'weekly_email_decision'=>staffingEmailApprovalDecide($input['raw'],$input['decision'],$input['revision'],'Synthetic weekly correction'),
         'client_decision'=>timeClientTokenRespond($input['raw'],$input['decision'],$input['revision'],'Synthetic client correction'),
@@ -777,6 +781,7 @@ try{
     require __DIR__.'/fixtures/time_weekly_email_concurrency_checks.php';
     require __DIR__.'/fixtures/time_csv_intake_concurrency_checks.php';
     require __DIR__.'/fixtures/time_correction_review_concurrency_checks.php';
+    require __DIR__.'/fixtures/time_accounting_handoff_concurrency_checks.php';
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));
     fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($handle);$report=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);
@@ -788,7 +793,7 @@ try{
     foreach($createdTenants as$createdTenant){
         $pdo->prepare('DELETE ma FROM membership_module_access ma JOIN tenant_memberships tm ON tm.id=ma.membership_id WHERE tm.tenant_id=?')->execute([$createdTenant]);
         foreach(['tenant_memberships','jobdiva_connections','payroll_profiles','people_employment_links','people_employees']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
-        foreach(['quanta_time_imports','time_entries','staffing_timesheets','time_periods','time_uploaded_documents','artifact_events','artifact_relationships','artifact_objects']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
+        foreach(['time_approval_rates','time_accounting_handoffs','quanta_time_imports','time_entries','staffing_timesheets','time_periods','time_uploaded_documents','artifact_events','artifact_relationships','artifact_objects']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     }
     foreach($createdTenants as$createdTenant)foreach(['placement_economic_parties','placement_rates','placement_client_chain','placement_corp_details','placement_referrals','placement_commissions','ap_vendors_index','placements','people','staffing_jobs','staffing_clients','staffing_operating_cycles','external_entity_mappings','entity_sync_history','companies','accounting_entities']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);
     foreach($createdTenants as$createdTenant)foreach(['core_record_numbers','audit_log','jobdiva_sync_audit','tenant_module_scope']as$table)$pdo->prepare('DELETE FROM '.$table.' WHERE tenant_id=?')->execute([$createdTenant]);

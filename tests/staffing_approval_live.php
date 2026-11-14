@@ -146,3 +146,29 @@ $repeat=staffingEmailApprovalConsume($issued['token'],'approve','Repeated click'
 $q->execute([$tenantId]);
 if ($repeat['ok'] || $repeat['status_code']!==409 || $q->fetchAll(PDO::FETCH_ASSOC)!==$events) throw new RuntimeException('Repeated weekly email decision changed its journal');
 echo "Weekly email review approved with actual external actor, frozen evidence, one posted journal and unchanged replay.\n";
+
+// No dispatcher can post inside an outer transaction. A crash after commit
+// leaves a complete request, whose retry uses the approval-time rate values.
+$pdo->prepare("INSERT INTO staffing_timesheets (id,tenant_id,person_id,period_start,period_end,status,total_hours,origin_source,created_by_user_id) VALUES (9603,?,9601,'2026-01-26','2026-02-01','submitted',6,'bulk_upload',2)")->execute([$tenantId]);
+$pdo->prepare("INSERT INTO time_periods (id,tenant_id,start_date,end_date,label,status) VALUES (9603,?,'2026-01-26','2026-02-01','CI durable accounting handoff','open')")->execute([$tenantId]);
+$pdo->prepare("INSERT INTO time_entries (id,tenant_id,placement_id,person_id,period_id,timesheet_id,work_date,category,hour_type,billable,payable,hours,status,source,created_by_user_id) VALUES (9603,?,9601,9601,9603,9603,'2026-01-27','regular_billable','regular',1,1,6,'pending_review','bulk_upload',2)")->execute([$tenantId]);
+$eventCount=static function()use($pdo,$tenantId):int {$q=$pdo->prepare('SELECT COUNT(*) FROM accounting_events WHERE tenant_id=? AND source_record_id LIKE "timesheet:9603:%"');$q->execute([$tenantId]);return (int)$q->fetchColumn();};
+foreach(['rollback','commit'] as $decision) {
+    $pdo->beginTransaction();
+    $result=staffingTimesheetBulkApprove(1,[9603]);
+    $handoff=timeAccountingHandoffStatus($tenantId,9603);
+    if (!$result['posting_warnings'] || $eventCount()!==0 || !$handoff || $handoff['status']!=='pending') throw new RuntimeException('Nested approval posted early or omitted its durable accounting intent');
+    if ($decision==='rollback') {
+        $pdo->rollBack();
+        $q=$pdo->prepare('SELECT COUNT(*) FROM time_approval_rates WHERE tenant_id=? AND time_entry_id=9603');$q->execute([$tenantId]);
+        if ($q->fetchColumn() || timeAccountingHandoffStatus($tenantId,9603)!==null || $eventCount()) throw new RuntimeException('Outer rollback left an archived rate or financial handoff');
+    } else $pdo->commit();
+}
+$pdo->prepare('UPDATE placement_rates SET bill_rate=200,adjusted_bill_rate=200,pay_rate=90 WHERE tenant_id=? AND id=9601')->execute([$tenantId]);
+try {
+    if (staffingEmitWorkerHoursApprovedEvent($tenantId,9603)!==null) throw new RuntimeException('Retained approval could not recover after the rate changed');
+    $q=$pdo->prepare('SELECT payload FROM accounting_events WHERE tenant_id=? AND source_record_id LIKE "timesheet:9603:%"');$q->execute([$tenantId]);$payload=json_decode($q->fetchColumn(),true,512,JSON_THROW_ON_ERROR);
+    if ($eventCount()!==1 || (float)$payload['revenue']!==600.0 || (float)$payload['cost']!==360.0) throw new RuntimeException('Retry restated approved economics from the later master rate');
+    if (staffingEmitWorkerHoursApprovedEvent($tenantId,9603)!==null || $eventCount()!==1) throw new RuntimeException('Retried handoff duplicated accounting');
+} finally {$pdo->prepare('UPDATE placement_rates SET bill_rate=100,adjusted_bill_rate=100,pay_rate=60 WHERE tenant_id=? AND id=9601')->execute([$tenantId]);}
+echo "Durable approval handoff rolls back atomically, recovers after interruption at original rates, and posts exactly once.\n";

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__.'/native_submission.php';
 require_once __DIR__.'/csv_evidence.php';
+require_once __DIR__.'/approval_economics.php';
 
 function timeNativeApprovalSnapshot(array $entry, ?int $actor): array
 {
@@ -43,6 +44,7 @@ function timeNativeApprovalSnapshot(array $entry, ?int $actor): array
         'event_entity_id'=>$context['event_entity_id'], 'engagement_type'=>$engagement,
         'referral_fee_per_hour'=>$referralFee, 'missing'=>$context['missing']??[],
         'csv_source_evidence'=>$csvEvidence,
+        'approved_rate_version'=>1,
         'source_rate_hash'=>hash('sha256',staffingDimensionSnapshotCanonicalJson($rate)),
     ];
     return ['rate_id'=>(int)$rate['id'],'dimensions'=>$snapshot,
@@ -92,6 +94,7 @@ function timeNativeWriteApproval(array $entry, array $snapshot, ?int $actor, str
         timeNativeExternalReviewer($entry,$email);
     }
     $json=staffingDimensionSnapshotCanonicalJson($snapshot['dimensions']);
+    timeArchiveApprovedRate($entry,$snapshot);
     $q=getDB()->prepare('UPDATE time_entries SET status="approved",rate_snapshot_id=?,dimension_snapshot_json=?,dimension_snapshot_hash=?,approved_at=NOW(),approved_by_user_id=?,approved_via=?,client_approver_email=?,rejected_reason=NULL WHERE tenant_id=? AND id=? AND status="pending_review"');
     $q->execute([$snapshot['rate_id'],$json,hash('sha256',$json),$actor,$via,$email,staffingTimeWorkspace(),$entry['id']]);
     if ($q->rowCount()!==1) throw new RuntimeException('The time entry changed during approval. Refresh and review it again.',409);

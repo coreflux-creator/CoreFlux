@@ -223,6 +223,10 @@ function timeReconcileTimesheetHeader(?int $timesheetId, ?int $actorUserId = nul
         }
         if ($changed) staffingTimeUpdate('staffing_timesheets', $timesheetId, $changed);
         $header = array_replace($header, $update);
+        if ($header['status']==='approved' && StaffingNativeTimeEdit::active()) {
+            require_once __DIR__.'/accounting_handoff.php';
+            timeAccountingHandoffEnqueue($tenantId,$timesheetId);
+        }
         $artifact = empty($header['artifact_id']) ? null : artifactGet($tenantId, (string) $header['artifact_id']);
         if ($changed || !$artifact
             || $artifact['status'] !== staffingTimesheetArtifactStatus($header['status'])
