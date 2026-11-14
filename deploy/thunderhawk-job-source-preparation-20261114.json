@@ -1,0 +1,63 @@
+{
+  "date": "2026-11-14",
+  "source_commit": "ff88d483858c58f971694dd9263c2e8fc30da12e",
+  "ci_run": 43598535056,
+  "ci_url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43598535056",
+  "ci_jobs_passed": 11,
+  "scope": "JobDiva job and Mapping Studio ownership; native edits and explicit source review",
+  "tests": {
+    "job_source_database_checks": 73,
+    "independent_connection_checks": 950,
+    "job_concurrency_checks": 6,
+    "native_session_http_checks": 981,
+    "rendered_component_checks": 6,
+    "temporary_actor_connection_and_server_retired": true,
+    "private_sessions_removed": true
+  },
+  "artifact": {
+    "archive_sha256": "511497340c92e31f59fc579a08085c551d603908bdc0d1595910d44c1c5e87d6",
+    "manifest_sha256": "2d4998eed52e5c24e82582c77bc604b19281d2655a3437922eaabb1a6f65c8e8",
+    "public_files": 2379,
+    "private_files": 4198
+  },
+  "required_migration": "modules/staffing/migrations/009_job_source_ownership.sql",
+  "migration_effect": "Add nullable private JSON state; preserve existing job values and provider identities",
+  "read_only_pilot_check": {
+    "checked_at": "2026-11-14T13:07:12+00:00",
+    "ownership_column_present": false,
+    "job_rows": 1,
+    "job_snapshot_sha256": "7b13168937c7084226757f44b1a166b025b16175e59a2292c24d0347aaa3b366",
+    "accepted_application": "8e092ce93a626f518f758b719488da5611f26287"
+  },
+  "local_browser": {
+    "scope": "Local synthetic preview of actual Jobs and JobSourceReview components",
+    "backend": "synthetic stub rejecting all saves",
+    "observed": {
+      "current_and_incoming_values_displayed": true,
+      "explicit_field_selection": true,
+      "explicit_confirmation": true,
+      "rejected_save_visible": true,
+      "selected_field_retained_after_refusal": true,
+      "review_client_width": 573,
+      "review_scroll_width": 573,
+      "viewport_width": 1680
+    },
+    "screenshot": {
+      "captured": false,
+      "reason": "Page.captureScreenshot timed out"
+    },
+    "hosted_acceptance": false
+  },
+  "evidence_sha256": {
+    "job-source-candidate-acceptance-20261114.json": "f2efb79b28a5f4ef5737eb7504e7bba0d3f0abbeca452f51ea8882bec75e76bb",
+    "job-source-final-live-business.log": "3607dd4dc1b25eca9c1e63a4872ff8d34b4bea08f37a94e824812bb357894575",
+    "job-source-host-readiness-20261114.json": "5ff44aaebbd4eb216157d88d1364f3f1dbb1d4777817aa8d628aa693e161db9c",
+    "job-source-browser-review-20261114.json": "b2e2681ff52d3beeb84e160c77008a6d7c4fc8be5e0a876bdb31698f3009a393"
+  },
+  "hosted_installation": false,
+  "hosted_acceptance": false,
+  "field_inventory_job_fields_accepted": false,
+  "production_changes": false,
+  "arabella_changes": false,
+  "financial_execution": false
+}

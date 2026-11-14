@@ -2,7 +2,13 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
-## November 14 current checkpoint — selected-source payroll round trip and hosted presentation accepted
+## November 14 current checkpoint — job source ownership accepted in source; installation pending
+
+Candidate `ff88d483` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43598535056), including 73 job ownership database checks, 950 independent-connection checks and 981 native-session HTTP checks. Six rendered interface checks passed. Core job edits and intentional clears retain ownership across JobDiva and Mapping Studio refreshes; missing source fields preserve existing values. Explicit per-field source decisions require the displayed version and durable audit, and exact retries return the original receipt. Legacy mapped provider numbers remain visible without adopting source ownership. [Behavior and evidence](thunderhawk-job-source-ownership.md).
+
+Read-only pilot inspection found one job and no new ownership column. The local browser used a synthetic backend that rejects saves; hosted acceptance remains pending. The accepted installed application is still `8e092ce9`. Next prepare and rehearse the one-migration pilot upgrade, preserve all installed runtime/configuration/database preimages, install, and verify the native job/source review through hosted sessions. The pending 60 native-payroll definitions and all remaining field, portal, document, financial allocation and reconciliation requirements remain open. No production, provider, Arabella or financial-execution changes occurred; the full integration goal remains active and incomplete.
+
+## November 14 selected-source payroll round trip and hosted presentation accepted
 
 The selected 75-minute Quanta source completed Core import, independent approval, returned Quanta status, reviewed input **118**, one execution-held PurePayroll draft and saved Core result **8**. The original November 9–22 payroll period, P-387 / PL-902, original provider IDs, Core time 24 and rate snapshot 23 are preserved. **1.25 hours × USD 50.0000 = USD 62.50**. Input/reservation checks passed 45 cases; returned-result checks passed 35. Replay did not duplicate the input, reservation, draft or observation. Original reserved time 17 and its incomplete rate evidence remain unchanged. [Round-trip evidence](../deploy/thunderhawk-payroll-selection-acceptance-20261114.json).
 
