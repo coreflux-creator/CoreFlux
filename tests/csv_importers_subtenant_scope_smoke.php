@@ -28,6 +28,7 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 $root   = dirname(__DIR__);
 $people = (string) file_get_contents($root . '/modules/people/api/csv_import.php');
 $time   = (string) file_get_contents($root . '/modules/time/api/csv_import.php');
+$time .= (string)file_get_contents($root . '/modules/time/lib/csv_schema.php') . (string)file_get_contents($root . '/modules/time/lib/csv_intake.php');
 
 echo "\n1. People CSV importer\n";
 $a('require_once core/sub_tenants.php',
@@ -44,7 +45,7 @@ echo "\n2. Time CSV importer\n";
 $a('require_once core/sub_tenants.php',
    str_contains($time, "require_once __DIR__ . '/../../../core/sub_tenants.php';"));
 $a('placement-lookup query binds effectiveTenantIdForModule(\'placements\')',
-   str_contains($time, "'placements_tid' => effectiveTenantIdForModule('placements')")
+   str_contains($time, "'placements_tid' => StaffingNativeTimeEdit::owner('placements') ?? effectiveTenantIdForModule('placements')")
    && str_contains($time, 'p.tenant_id = :placements_tid')
    && str_contains($time, '$stmt->execute($params);'));
 $a('no longer uses raw currentTenantId() for placement lookup',

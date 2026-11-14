@@ -32,16 +32,19 @@ export default function CsvImport() {
         <>
           The template has exactly three columns: <strong>Placement ID</strong>, <strong>Work date</strong>, and <strong>Hours</strong>.
           Use the displayed <strong>PL-####</strong> ID. Older files with the bare number still work.
-          Work date may also be a week-ending date when the row contains a weekly total; time type defaults to regular.
+          Time type defaults to regular. Weekly totals are retained as totals and need a dated breakdown before Core approval.
+          To retain an external approval, add External approver email, External approval time (including timezone), and External approval reference. A different Core reviewer confirms imported time.
         </>
       )}
       extraDownloads={[
+        {label:'Download external approval template',href:'/modules/time/api/csv_import.php?action=external_approval_template',testid:'time-csv-external-template'},
         {
           label: 'Download placement ID reference',
           href: '/modules/time/api/csv_import.php?action=placement_reference',
           testid: 'time-csv-import-placement-reference',
         },
       ]}
+      reviewRequired
       defaultUpdateExisting
       updateExistingLabel="Update matching unapproved entries instead of creating duplicates"
       previewColumns={[
@@ -52,11 +55,16 @@ export default function CsvImport() {
         { key: 'hour_type',       label: 'Time type' },
         { key: 'hours',           label: 'Hours' },
         { key: 'description',     label: 'Description' },
+        { key: 'hours_basis', label: 'Hours basis' },
+        { key: 'source_approver_email', label: 'External reviewer' },
+        { key: 'source_approved_at', label: 'External approval time' },
+        { key: 'source_approval_reference', label: 'External reference' },
+        { key: 'core_review_status', label: 'Core review' },
       ]}
       extraToggles={[
         {
           key:         'already_approved',
-          label:       'Already approved externally',
+          label:       'This file includes external approval details (Core review still required)',
           commitParam: 'already_approved=1',
           default:     false,
         },

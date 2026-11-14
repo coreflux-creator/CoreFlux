@@ -37,12 +37,13 @@ $a('CSV button has descriptive tooltip',             str_contains($tsw, 'Bulk im
 
 echo "\nTime CSV importer (existing — verify multi-period support)\n";
 $tci = (string) file_get_contents("{$ROOT}/modules/time/api/csv_import.php");
+$tci .= (string)file_get_contents($ROOT . '/modules/time/lib/csv_schema.php') . (string)file_get_contents($ROOT . '/modules/time/lib/csv_intake.php');
 $a('csv_import.php exists',                          is_file("{$ROOT}/modules/time/api/csv_import.php"));
 $a('resolves placement by external_id',              str_contains($tci, 'placements') && str_contains($tci, 'external_id'));
 $a('auto-resolves period from work_date',
-    str_contains($tci, 'timeOpenPeriodIdForDate(')
+    str_contains($tci, 'staffingTimeResolveOpenPeriod(')
     && str_contains($tci, "\$row['work_date']")
-    && str_contains($tci, '$periodId'));
+    && str_contains($tci, '$period'));
 $a('supports dry_run action',                        str_contains($tci, 'dry_run'));
 $a('supports commit action',                         str_contains($tci, 'commit'));
 $a('uses shared CsvImportService',                   str_contains($tci, 'CsvImportService'));

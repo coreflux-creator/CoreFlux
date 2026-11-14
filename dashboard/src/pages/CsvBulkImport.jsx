@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, getPinnedTenantId } from '../lib/api';
 import { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit, recoverCsvImportAudit, rememberCsvImportRun, forgetCsvImportRun } from '../lib/csvImportAudit';
 import CsvImportRecoveryNotice from '../components/CsvImportRecoveryNotice';
 
@@ -262,8 +262,10 @@ export default function CsvBulkImport({ financeOnly = false }) {
           const body = { csv: f.csv };
           if (f.columnMap) body.column_map = f.columnMap;
           const shouldUpdate = updateExisting && cfg.supportsUpdate;
-          const res = await api.post(`${cfg.endpoint}?action=dry_run${shouldUpdate ? '&update_existing=1' : ''}`, body);
-          next[i] = { ...f, preview: res, error: null };
+          const workspace = String(getPinnedTenantId() || '');
+          const res = await api.post(`${cfg.endpoint}?action=dry_run${shouldUpdate ? '&update_existing=1' : ''}${f.entity === 'time' && skipInvalid ? '&skip_invalid=1' : ''}`, body);
+          if (f.entity === 'time' && (workspace !== String(getPinnedTenantId() || '') || !/^[a-f0-9]{64}$/.test(res.review_revision || ''))) throw new Error('The time review is incomplete or its workspace changed. Check the file again.');
+          next[i] = { ...f, preview: res, previewWorkspace: workspace, error: null };
         } catch (err) {
           next[i] = { ...f, preview: null, error: err };
         }
@@ -299,6 +301,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
         let runId = f.audit?.state === 'source_missing' ? f.audit.id : null;
         let sourceArchived = false;
         try {
+          if (f.entity === 'time' && (!f.preview?.review_revision || f.previewWorkspace !== String(getPinnedTenantId() || ''))) throw new Error('Check this time file in the current workspace before importing it.');
           if (!runId) {
             runId = await reserveCsvImportAudit({
               entity: f.entity, fileName: f.fileName, csvText: f.csv, sourceFile: f.sourceFile, preview: f.preview,
@@ -318,6 +321,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
           const body = { csv: f.csv };
           if (f.columnMap) body.column_map = f.columnMap;
           if (financeOnly) body.import_run_id = runId;
+          if (f.entity === 'time') body.review_revision = f.preview.review_revision;
           const res = await api.post(path, body);
           next[idx] = { ...next[idx], committed: res, error: null };
           try {
@@ -485,7 +489,7 @@ export default function CsvBulkImport({ financeOnly = false }) {
                 <input
                   type="checkbox"
                   checked={skipInvalid}
-                  onChange={e => setSkipInvalid(e.target.checked)}
+                  onChange={e => { setSkipInvalid(e.target.checked); setFiles(prev => prev.map(f => f.entity === 'time' ? { ...f, preview: null } : f)); }}
                   data-testid="csv-bulk-skip-invalid"
                 />
                 Import valid rows even when others have errors

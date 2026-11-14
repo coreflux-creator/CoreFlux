@@ -19,6 +19,7 @@ $timeLib = $read('modules/time/lib/time.php');
 $timeSubmission = $read('modules/time/lib/native_submission.php');
 $timeDecisions = $read('modules/time/lib/native_decisions.php');
 $timeImport = $read('modules/time/api/csv_import.php');
+$timeImport .= (string)file_get_contents($root . '/modules/time/lib/csv_schema.php') . (string)file_get_contents($root . '/modules/time/lib/csv_intake.php');
 $timeExport = $read('modules/time/api/csv_export.php');
 $timeMyTime = $read('modules/time/ui/MyTime.jsx');
 $exportDatasets = $read('core/export_datasets.php');
@@ -103,9 +104,7 @@ $assert('time CSV carries Entry ID and source keys for deterministic updates',
     && str_contains($timeExport, "'external_id'           => 'External ID (source row)'")
     && str_contains($timeExport, "'source_system'         => 'Source system'"));
 $assert('time CSV Entry ID updates are explicit and reject locked rows',
-    str_contains($timeImport, 'enable Update existing rows')
-    && str_contains($timeImport, 'has already been settled and cannot be updated by CSV')
-    && str_contains($timeImport, "['draft', 'pending_review', 'rejected']"));
+    str_contains($timeImport, 'Enable Update existing rows') && str_contains($timeImport, 'staffingTimeAssertEditableEntry($existing)') && str_contains($timeImport, 'timeNativeAssertNoFinancialHistory($existing)'));
 $assert('time CSV resolves the Placements module tenant explicitly',
     str_contains($timeImport, "effectiveTenantIdForModule('placements'"));
 $assert('time export resolves People and Placements module tenants explicitly',
@@ -118,16 +117,13 @@ $assert('time CSV validates placement start and end dates',
     && str_contains($timeImport, 'Work date is after placement end date'));
 $assert('time CSV enforces per-row and person/day hour limits',
     str_contains($timeImport, 'Hours must be greater than zero')
-    && str_contains($timeImport, 'Total daily time on')
-    && str_contains($timeImport, 'would exceed 24 hours'));
+    && str_contains($timeImport, 'staffingTimesheetAssertDailyHours') && str_contains($timeImport, '$hours>168'));
 $assert('time CSV is atomic by default and partial import stays opt-in',
-    str_contains($timeImport, 'cf_tx_begin($pdo)')
-    && str_contains($timeImport, 'cf_tx_rollback($pdo, $ownsTxn)')
-    && str_contains($timeImport, 'if (!$skipInvalid && $errors)'));
+    str_contains($timeImport, 'StaffingNativeTimeEdit::runForWorkspace') && str_contains($timeImport, 'throw new TimeCsvImportRefused') && str_contains($timeImport, "!\$options['skip_invalid'] && \$errors"));
 $assert('time CSV creates weekly containers and links every imported row',
-    str_contains($timeImport, 'timeOpenPeriodIdForDate(')
+    str_contains($timeImport, 'staffingTimeResolveOpenPeriod(')
     && str_contains($timeImport, 'staffingTimesheetUpsert(')
-    && str_contains($timeImport, "'timesheet_id'  => \$timesheetId"));
+    && str_contains($timeImport, "'timesheet_id'=>(int)\$header['id']"));
 $assert('row state changes reconcile the weekly header',
     str_contains($timeLib, 'function timeReconcileTimesheetHeader')
     && str_contains($timeLib, 'timeReconcileTimesheetHeader((int)'));

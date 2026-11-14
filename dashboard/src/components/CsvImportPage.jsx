@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../../../dashboard/src/lib/api';
+import { api, getPinnedTenantId } from '../../../dashboard/src/lib/api';
 import { reserveCsvImportAudit, archiveCsvImportAudit, finalizeCsvImportAudit, recoverCsvImportAudit, rememberCsvImportRun, forgetCsvImportRun } from '../../../dashboard/src/lib/csvImportAudit';
 import CsvImportRecoveryNotice from './CsvImportRecoveryNotice';
 
@@ -41,6 +41,7 @@ export default function CsvImportPage({
   templateNote = null,
   extraDownloads = [],
   defaultUpdateExisting = false,
+  reviewRequired = false,
   updateExistingLabel = 'Update existing rows on match (otherwise skip duplicates)',
   /**
    * presetEntity: short identifier (e.g. 'people', 'ap_vendors') used to
@@ -54,7 +55,7 @@ export default function CsvImportPage({
    * skip_invalid / update_existing and appended to the commit URL. Used
    * for module-specific options (e.g. Time's "already_approved"). Shape:
    *   [{ key: 'already_approved',
-   *      label: 'Pre-approved (skip review queue)',
+   *      label: 'File includes external approval details',
    *      commitParam: 'already_approved=1',
    *      default: false }, ...]
    * The toggle's current value is also forwarded to the history log
@@ -76,6 +77,9 @@ export default function CsvImportPage({
 }) {
   const fileRef = useRef(null);
   const committingRef = useRef(false);
+  const previewRequestRef = useRef(0);
+  const previewWorkspaceRef = useRef(null);
+  const previewBasisRef = useRef(null);
   const [csvText, setCsvText]         = useState('');
   const [sourceFile, setSourceFile]   = useState(null);
   const [fileName, setFileName]       = useState('');
@@ -97,11 +101,16 @@ export default function CsvImportPage({
   const [extraToggleValues, setExtraToggleValues] = useState(
     () => Object.fromEntries((extraToggles || []).map(t => [t.key, !!t.default]))
   );
-  const setExtraToggle = (key, val) => setExtraToggleValues(prev => ({ ...prev, [key]: !!val }));
+  const setExtraToggle = (key, val) => {
+    const values = { ...extraToggleValues, [key]: !!val }; setExtraToggleValues(values);
+    if (reviewRequired) dryRun(updateExisting, values, skipInvalid);
+  };
 
   const onFile = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
+    previewRequestRef.current++;
+    setRunning(false);
     setCsvText(''); setSourceFile(null); setPreview(null); setCommitted(null); setError(null); setAuditRun(null);
     setFileName(f.name);
     const reader = new FileReader();
@@ -128,6 +137,8 @@ export default function CsvImportPage({
   };
 
   const setMapForHeader = (header, fieldKey) => {
+    previewRequestRef.current++;
+    setRunning(false);
     setColumnMap(prev => ({ ...prev, [header]: fieldKey || null }));
     // Mapping changed — invalidate any prior preview.
     setPreview(null);
@@ -175,6 +186,8 @@ export default function CsvImportPage({
   };
 
   const applyPreset = async (p) => {
+    previewRequestRef.current++;
+    setRunning(false);
     setColumnMap(prev => ({ ...(prev || {}), ...(p.column_map || {}) }));
     setPreview(null);
     try { await api.post(`/api/admin/csv_mapping_presets.php?action=use&id=${p.id}`); } catch { /* non-fatal */ }
@@ -209,6 +222,8 @@ export default function CsvImportPage({
         already_mapped: already,
       });
       const sugg = res.suggestions || {};
+      previewRequestRef.current++;
+      setRunning(false);
       setColumnMap(prev => ({ ...(prev || {}), ...sugg }));
       setAiReason(res.reasoning || 'Suggested mapping applied. Review it before checking the file.');
       setPreview(null);
@@ -216,20 +231,35 @@ export default function CsvImportPage({
     finally       { setAiRunning(false); }
   };
 
-  const dryRun = async (updateMode = updateExisting) => {
+  const dryRun = async (updateMode = updateExisting, toggleValues = extraToggleValues, skipMode = skipInvalid) => {
     if (!csvText) return;
+    const request = ++previewRequestRef.current;
+    const workspace = reviewRequired ? String(getPinnedTenantId() || '') : null;
+    if (reviewRequired) setPreview(null);
     setRunning(true); setError(null); setCommitted(null);
     try {
       const body = { csv: csvText };
       if (columnMap) body.column_map = columnMap;
-      const res = await api.post(`${endpoint}?action=dry_run${updateMode ? '&update_existing=1' : ''}`, body);
+      const flags = [];
+      if (reviewRequired) {
+        if (skipMode) flags.push('skip_invalid=1');
+        for (const toggle of extraToggles) if (toggleValues[toggle.key] && toggle.commitParam) flags.push(toggle.commitParam);
+      }
+      const res = await api.post(`${endpoint}?action=dry_run${updateMode ? '&update_existing=1' : ''}${flags.length ? '&' + flags.join('&') : ''}`, body);
+      if (request !== previewRequestRef.current) return;
+      if (reviewRequired && (workspace !== String(getPinnedTenantId() || '') || !/^[a-f0-9]{64}$/.test(res.review_revision || ''))) throw new Error('The import workspace changed or the review is incomplete. Check the file again.');
+      previewWorkspaceRef.current = workspace;
+      previewBasisRef.current = { request, revision: res.review_revision };
       setPreview(res);
-    } catch (e) { setError(e); }
-    finally     { setRunning(false); }
+    } catch (e) { if (request === previewRequestRef.current) setError(e); }
+    finally     { if (request === previewRequestRef.current) setRunning(false); }
   };
 
   const commit = async () => {
     if (!csvText || committed || committingRef.current || (auditRun?.id && auditRun.state !== 'source_missing')) return;
+    if (reviewRequired && !preview?.review_revision) { setError(new Error('Preview this import before confirming it.')); return; }
+    if (reviewRequired && (previewBasisRef.current?.request !== previewRequestRef.current || previewBasisRef.current?.revision !== preview.review_revision)) { setError(new Error('The import review changed. Check the file again.')); return; }
+    if (reviewRequired && previewWorkspaceRef.current !== String(getPinnedTenantId() || '')) { setPreview(null); setError(new Error('The import workspace changed. Check the file again.')); return; }
     const auditInput = {
       csvText, sourceFile, fileName, columnMap: JSON.stringify(columnMap),
       skipInvalid, updateExisting, extraToggles: JSON.stringify(extraToggleValues),
@@ -272,6 +302,7 @@ export default function CsvImportPage({
       const body = { csv: csvText };
       if (columnMap) body.column_map = columnMap;
       if (standaloneAccounting) body.import_run_id = runId;
+      if (reviewRequired) body.review_revision = preview.review_revision;
       const res = await api.post(path, body);
       setCommitted(res);
       if (runId) {
@@ -344,6 +375,8 @@ export default function CsvImportPage({
   };
 
   const reset = () => {
+    previewRequestRef.current++;
+    setRunning(false);
     setCsvText(''); setSourceFile(null); setFileName(''); setPreview(null); setCommitted(null); setError(null); setAuditRun(null);
     setInspectResult(null); setColumnMap(null);
     setSkipInvalid(false);
@@ -623,7 +656,7 @@ export default function CsvImportPage({
                   <input
                     type="checkbox"
                     checked={skipInvalid}
-                    onChange={e => setSkipInvalid(e.target.checked)}
+                    onChange={e => { setSkipInvalid(e.target.checked); if (reviewRequired) dryRun(updateExisting, extraToggleValues, e.target.checked); }}
                     data-testid={`${testidPrefix}-skip-invalid`}
                   />
                   {groupLabel ? 'Skip invalid documents and import the rest' : 'Skip invalid rows and import the rest'}

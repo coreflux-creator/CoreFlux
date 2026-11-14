@@ -435,6 +435,7 @@ jobs:
 
       - name: Verify time CSV through invoice delivery and bank collection
         run: |
+          export COREFLUX_DATA_KEY="$(php -r 'echo base64_encode(random_bytes(32));')"
           php -S 127.0.0.1:8765 -t . tests/ci_business_api_router.php > /tmp/coreflux-business-api.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid"' EXIT

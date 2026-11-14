@@ -31,6 +31,7 @@ $staffingApi = $read('modules/staffing/api/timesheets.php');
 $entryApi = $read('modules/time/api/entries.php');
 $nativeEntries = $read('modules/time/lib/native_entries.php');
 $csvApi = $read('modules/time/api/csv_import.php');
+$csvApi .= (string)file_get_contents($root . '/modules/time/lib/csv_schema.php') . (string)file_get_contents($root . '/modules/time/lib/csv_intake.php');
 $jobdiva = $read('core/jobdiva/sync_time.php');
 $tokenApi = $read('modules/staffing/api/timesheet_email_approver.php');
 $tokenConsumer = $read('core/staffing_email_review.php');
@@ -91,9 +92,9 @@ $assert('single-entry and document APIs use canonical materializer',
     && str_contains($nativeEntries, 'staffingTimesheetUpsert($person,$start,$end')
     && str_contains($nativeEntries, 'timeNativeDraftHeader($person,$values[\'work_date\'],$actor,$source)'));
 $assert('CSV import uses canonical materializer and returns artifact identities',
-    str_contains($csvApi, 'staffingTimesheetUpsert($personId, $bounds')
+    str_contains($csvApi, 'staffingTimesheetUpsert($person,$bounds')
     && str_contains($csvApi, "'source' => 'bulk_upload'")
-    && str_contains($csvApi, "'artifact_id' => \$header['artifact_id']"));
+    && str_contains($csvApi, "'id','display_id','artifact_id'"));
 $assert('JobDiva uses canonical materializer with integration provenance',
     str_contains($jobdiva, 'staffingTimesheetUpsert($personId, $periodStart, $periodEnd')
     && str_contains($jobdiva, "'source' => 'integration'")

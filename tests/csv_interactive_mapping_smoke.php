@@ -107,6 +107,7 @@ $endpoints = [
 ];
 foreach ($endpoints as $name => $rel) {
     $body = $read(__DIR__ . $rel);
+    if ($name === 'time') $body .= $read(__DIR__ . '/../modules/time/lib/csv_schema.php');
     $a("{$name} exposes ?action=inspect",    str_contains($body, "action === 'inspect'") && str_contains($body, 'CsvImportService::inspect'));
     $a("{$name} reads column_map in dry_run", substr_count($body, 'readRequestColumnMap') >= 1);
     $a("{$name} forwards column_map to service",

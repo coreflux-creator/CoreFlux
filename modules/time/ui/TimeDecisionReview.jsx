@@ -81,7 +81,11 @@ export default function TimeDecisionReview({ kind, ids, decision, reason: initia
           <tbody>{review.entries.map(row => <tr key={row.id}>
             <td>{row.person_number} · {row.worker_name}</td><td>{row.placement_number} · {row.placement_title}</td>
             <td>{row.work_date}</td><td>{Number(row.hours).toFixed(2)}</td><td>{String(row.hour_type || row.category).replaceAll('_', ' ')}{row.description && <p>{row.description}</p>}</td>
-            <td>{String(row.source || 'manual_entry').replaceAll('_', ' ')}</td><td>{row.will_change ? (decision === 'approve' ? 'Approve' : 'Return for correction') : 'Retain earlier approval'}</td>
+            <td>{String(row.source || 'manual_entry').replaceAll('_', ' ')}{row.csv_source_evidence && <div data-testid={`time-csv-source-${row.id}`}>
+              <p>{row.csv_source_evidence.matches_source ? 'Matches retained CSV row' : 'Time differs from retained CSV row'}</p>
+              {row.csv_source_evidence.external_approval && <p>External approval reported by {row.csv_source_evidence.external_approval.approved_by_email} · {row.csv_source_evidence.external_approval.approved_at}<br />Reference: {row.csv_source_evidence.external_approval.reference}. Requires your independent Core decision.</p>}
+              <a href={`/modules/time/api/csv_import.php?action=source&id=${row.csv_source_evidence.import_id}`}>Download original CSV · row {row.csv_source_evidence.source_row}</a>
+            </div>}</td><td>{row.will_change ? (decision === 'approve' ? 'Approve' : 'Return for correction') : 'Retain earlier approval'}</td>
           </tr>)}</tbody>
         </table></div>
         {decision === 'reject' && <label style={{ display: 'block', margin: '16px 0' }}>Reason for correction

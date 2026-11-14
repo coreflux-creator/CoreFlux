@@ -92,6 +92,7 @@
         require __DIR__.'/time_decision_review_http_checks.php';
         require __DIR__.'/time_client_token_http_checks.php';
         require __DIR__.'/time_weekly_email_http_checks.php';
+        require __DIR__.'/time_csv_intake_http_checks.php';
     } finally {
         $pdo->exec('DROP TRIGGER IF EXISTS cf_http_approval_receipt');
         if($member){$pdo->prepare('DELETE FROM membership_module_access WHERE membership_id=?')->execute([$member]);deactivateMembership($actor,$workspace);}

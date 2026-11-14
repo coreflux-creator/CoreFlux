@@ -10,7 +10,7 @@
  *   2. All three approve-transition sites call the helper:
  *      - manual approve (entries.php)
  *      - tokenized client email approve (approval_tokens.php)
- *      - bulk CSV pre-approved import (csv_import.php)
+ *      - CSV intake remains pending until the shared independent approval path
  *   3. None of the three sites call `accountingPostJe()` or any GL-write
  *      helper directly — entry-level is strictly audit-only.
  *   4. The helper payload includes the discriminating fields downstream
@@ -82,16 +82,12 @@ $a('client decision retains token, email and IP context', str_contains($client,"
 $a('client final receipt is required before transaction completion', str_contains($client,"timeNativeRequiredAudit('time.tokenized_email.responded'"));
 $a('client token decisions do not directly post journals', !str_contains($client,'accountingPostJe('));
 
-echo "\n6. Bulk CSV pre-approved site (csv_import.php)\n";
-$csv = (string) file_get_contents($root . '/modules/time/api/csv_import.php');
-$a('emits per-entry audit only when preApproved is true',
-   preg_match('/if \(\$preApproved\)\s*\{\s*timeEntryApprovedEmit\(/', $csv) === 1);
-$a('passes bulk_pre_approved as approved_via',
-   str_contains($csv, "'bulk_pre_approved',"));
-$a('preserves source=bulk_upload in context',
-   str_contains($csv, "'source'           => 'bulk_upload',"));
-$a('bulk CSV approve site does NOT call accountingPostJe (audit-only)',
-   !str_contains($csv, 'accountingPostJe'));
+echo "\n6. CSV source evidence and independent approval\n";
+$csv = (string)file_get_contents($root.'/modules/time/lib/csv_intake.php');
+$a('CSV imports pending time without inventing an approver', str_contains($csv,"'status'=>'pending_review'") && str_contains($csv,"'approved_by_user_id'=>null") && !str_contains($csv,'timeEntryApprovedEmit('));
+$a('CSV source assertion is retained separately',str_contains($csv,'source_approval_json') && str_contains($csv,"'requires_independent_review'=>true"));
+$a('CSV entry changes require an audit receipt',str_contains($csv,"timeNativeRequiredAudit(\$existing?'time.entry.updated':'time.entry.created'"));
+$a('CSV intake cannot post journals',!str_contains($csv,'accountingPostJe(') && !str_contains($csv,'accountingPostBundleAccrual('));
 
 echo "\n7. Bundle accrual hook is the SOLE GL-writing approval path\n";
 $time = (string) file_get_contents($root . '/modules/time/lib/time.php');

@@ -136,7 +136,7 @@ try {
         throw new RuntimeException('CSV preview rejected valid placement/date/hours rows: ' . json_encode($dry));
     }
 
-    [$status, $import] = ciBusinessApi($curl, $base, 'POST', '/modules/time/api/csv_import.php?action=commit', ['csv' => $csv]);
+    [$status, $import] = ciBusinessApi($curl, $base, 'POST', '/modules/time/api/csv_import.php?action=commit', ['csv' => $csv, 'review_revision' => $dry['review_revision']]);
     ciBusinessExpect($status, 200, $import, 'CSV import');
     $entryIds = array_values(array_map('intval', $import['ids'] ?? []));
     $timesheetId = (int) ($import['timesheet_ids'][0] ?? 0);

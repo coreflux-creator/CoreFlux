@@ -23,7 +23,7 @@ function timeNativeDecisionState(int $actor,string $kind,array $ids,string $deci
     if (!StaffingNativeTimeEdit::active()) throw new LogicException('A protected review transaction is required.');
     if ($actor<=0) throw new RuntimeException('An identified reviewer is required.',403);
     if (!in_array($kind,['entries','weeks'],true) || !in_array($decision,['approve','reject'],true)) throw new RuntimeException('Choose a supported time decision.',422);
-    $ids=timeNativeDecisionIds($ids);$entries=[];$headers=[];$plans=[];$pending=[];$view=[];$identities=[];$siblings=[];
+    $ids=timeNativeDecisionIds($ids);$entries=[];$headers=[];$plans=[];$pending=[];$view=[];$identities=[];$siblings=[];$csvEvidence=[];
     if ($kind==='weeks') {
         foreach ($ids as $id) {
             $header=staffingTimesheetRow(staffingTimeWorkspace(),$id,true);
@@ -68,17 +68,18 @@ function timeNativeDecisionState(int $actor,string $kind,array $ids,string $deci
         $person=coreRecordNumbersAttach(getDB(),(int)StaffingNativeTimeEdit::owner('people'),'person',[$person])[0];
         $placement=coreRecordNumbersAttach(getDB(),(int)StaffingNativeTimeEdit::owner('placements'),'placement',[$placement])[0];
         $identities[$id]=[$person,$placement];
+        $csvEvidence[$id]=timeCsvEvidenceForEntry($entry);
         $view[]=array_intersect_key($entry,array_flip(['id','timesheet_id','work_date','hours','hour_type','category','description','source','source_system','source_ref_id','status','billable','payable']))+[
             'person_number'=>$person['person_number'],'worker_name'=>trim($person['first_name'].' '.$person['last_name']),
             'placement_number'=>$placement['placement_number'],'placement_title'=>$placement['title'],
-            'will_change'=>$entry['status']==='pending_review',
+            'will_change'=>$entry['status']==='pending_review','csv_source_evidence'=>$csvEvidence[$id],
         ];
     }
     if ($decision==='approve' && $kind==='entries') timeNativeApprovalSourceIds(array_values($pending),$actor);
     $revision=hash('sha256',staffingDimensionSnapshotCanonicalJson([
         'actor'=>$actor,'workspace'=>staffingTimeWorkspace(),'kind'=>$kind,'ids'=>$ids,'decision'=>$decision,
         'people_owner'=>StaffingNativeTimeEdit::owner('people'),'placement_owner'=>StaffingNativeTimeEdit::owner('placements'),
-        'entries'=>$entries,'headers'=>$headers,'siblings'=>$siblings,'identities'=>$identities,'plans'=>$plans,
+        'entries'=>$entries,'headers'=>$headers,'siblings'=>$siblings,'identities'=>$identities,'plans'=>$plans,'csv_source_evidence'=>$csvEvidence,
     ]));
     return ['ids'=>$ids,'entries'=>$entries,'pending'=>$pending,'plans'=>$plans,'headers'=>$headers,'public'=>[
         'workspace_id'=>staffingTimeWorkspace(),'kind'=>$kind,'decision'=>$decision,'ids'=>$ids,'revision'=>$revision,

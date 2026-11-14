@@ -2,6 +2,7 @@
 /** Approval evidence is resolved and written under the original workspace locks. */
 declare(strict_types=1);
 require_once __DIR__.'/native_submission.php';
+require_once __DIR__.'/csv_evidence.php';
 
 function timeNativeApprovalSnapshot(array $entry, ?int $actor): array
 {
@@ -13,6 +14,9 @@ function timeNativeApprovalSnapshot(array $entry, ?int $actor): array
     if ($actor !== null && timePersonIdForUser(['id'=>$actor])===(int)$entry['person_id']) {
         throw new RuntimeException('This time requires a different approver; you cannot approve your own time.',403);
     }
+    $csvEvidence=timeCsvEvidenceForEntry($entry);
+    if ($csvEvidence && $actor!==null && $actor===$csvEvidence['imported_by_user_id']) throw new RuntimeException('A different Core reviewer must approve the time you imported.',403);
+    if ($csvEvidence && $csvEvidence['hours_basis']==='weekly_total') throw new RuntimeException('This imported row is a weekly total. Review its source and provide the dated breakdown before approving time.',409);
     timeNativeValidateSubmission($entry);
     $workspace=staffingTimeWorkspace();
     $owner=StaffingNativeTimeEdit::lockOwner('accounting');
@@ -38,6 +42,7 @@ function timeNativeApprovalSnapshot(array $entry, ?int $actor): array
         'vendor_company_id'=>$context['vendor_company_id']??null, 'vendor_ap_id'=>$context['vendor_ap_id']??null,
         'event_entity_id'=>$context['event_entity_id'], 'engagement_type'=>$engagement,
         'referral_fee_per_hour'=>$referralFee, 'missing'=>$context['missing']??[],
+        'csv_source_evidence'=>$csvEvidence,
         'source_rate_hash'=>hash('sha256',staffingDimensionSnapshotCanonicalJson($rate)),
     ];
     return ['rate_id'=>(int)$rate['id'],'dimensions'=>$snapshot,
@@ -72,7 +77,9 @@ function timeNativeExternalReviewer(array $entry, string $email): void
     $q=getDB()->prepare('SELECT email_primary FROM people WHERE tenant_id=? AND id=? FOR UPDATE');
     $q->execute([StaffingNativeTimeEdit::owner('people'),$entry['person_id']]);$workerEmail=$q->fetchColumn();
     $q=getDB()->prepare('SELECT email FROM users WHERE id=? FOR UPDATE');$q->execute([(int)($entry['created_by_user_id']??0)]);$creatorEmail=$q->fetchColumn();
-    foreach([$workerEmail,$creatorEmail]as$ownEmail) if ($ownEmail && strcasecmp(trim($ownEmail),trim($email))===0) throw new RuntimeException('This time requires a different approver.',403);
+    $csvEvidence=timeCsvEvidenceForEntry($entry);$importerEmail=null;
+    if ($csvEvidence) {$q=getDB()->prepare('SELECT email FROM users WHERE id=? FOR UPDATE');$q->execute([$csvEvidence['imported_by_user_id']]);$importerEmail=$q->fetchColumn();}
+    foreach([$workerEmail,$creatorEmail,$importerEmail]as$ownEmail) if ($ownEmail && strcasecmp(trim($ownEmail),trim($email))===0) throw new RuntimeException('This time requires a different approver.',403);
 }
 
 function timeNativeWriteApproval(array $entry, array $snapshot, ?int $actor, string $via, array $context=[]): array

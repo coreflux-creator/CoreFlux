@@ -73,14 +73,13 @@ $a('placements updates instead of insert',   str_contains($pl, "scopedUpdate('pl
 $a('placements audit includes update_existing', str_contains($pl, "'update_existing' => \$updateExisting"));
 
 $tm = $read(__DIR__ . '/../modules/time/api/csv_import.php');
-$a('time reads ?update_existing=1',          str_contains($tm, "\$updateExisting = !empty(\$_GET['update_existing'])"));
-$a('time dedupes by composite key',          str_contains($tm, 'placement_id = :pl AND person_id = :p') && str_contains($tm, 'work_date = :wd AND category = :cat'));
+$tm .= (string)file_get_contents(__DIR__ . '/..' . '/modules/time/lib/csv_schema.php') . (string)file_get_contents(__DIR__ . '/..' . '/modules/time/lib/csv_intake.php');
+$a('time reads ?update_existing=1',          str_contains($tm, "!empty(\$_GET['update_existing'])"));
+$a('time dedupes by composite key',          str_contains($tm, 'placement_id=:placement AND person_id=:person') && str_contains($tm, 'work_date=:day AND category=:category'));
 $a('time refuses to update approved or settled rows',
-    str_contains($tm, "['draft', 'pending_review', 'rejected']")
-    && str_contains($tm, 'cannot be updated by CSV')
-    && str_contains($tm, 'has already been settled and cannot be updated by CSV'));
-$a('time updates instead of insert',         str_contains($tm, "scopedUpdate('time_entries'"));
-$a('time audit includes update_existing',    str_contains($tm, "'update_existing' => \$updateExisting"));
+    str_contains($tm, 'staffingTimeAssertEditableEntry($existing)') && str_contains($tm, 'timeNativeAssertNoFinancialHistory($existing)'));
+$a('time updates instead of insert',         str_contains($tm, "staffingTimeUpdate('time_entries'"));
+$a('time audit includes update_existing',    str_contains($tm, "'update_existing'=>!empty(\$options['update_existing'])"));
 
 echo "\nBulk wizard auto-applies presets\n";
 $bulk = $read(__DIR__ . '/../dashboard/src/pages/CsvBulkImport.jsx');

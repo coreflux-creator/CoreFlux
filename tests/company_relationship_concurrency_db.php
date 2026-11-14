@@ -11,6 +11,7 @@ require_once __DIR__.'/../modules/time/lib/native_entries.php';
 require_once __DIR__.'/../modules/time/lib/native_decisions.php';
 require_once __DIR__.'/../modules/time/lib/client_token_review.php';
 require_once __DIR__.'/../core/staffing_email_review.php';
+require_once __DIR__.'/../modules/time/lib/csv_intake.php';
 require_once __DIR__.'/../core/jobdiva/sync.php';
 require_once __DIR__.'/../core/jobdiva/sync_placements.php';
 require_once __DIR__.'/../core/qbo/sync_in.php';
@@ -47,6 +48,7 @@ function genericTimeRaceWrite(array $input): array
     setRequestTenantId($input['workspace']);$_SESSION['tenant_id']=$input['workspace'];setRequestModuleScope('time');
     $user=['id'=>$input['actor']];$authorize=static function(int $person):void {};
     $result=match($input['operation']??'patch') {
+        'csv_import'=>timeCsvImportCommit($input['workspace'],$input['actor'],$input['csv'],null,$input['options'],$input['revision']),
         'weekly_email_decision'=>staffingEmailApprovalDecide($input['raw'],$input['decision'],$input['revision'],'Synthetic weekly correction'),
         'client_decision'=>timeClientTokenRespond($input['raw'],$input['decision'],$input['revision'],'Synthetic client correction'),
         'decision'=>timeNativeDecisionCommit($input['actor'],$input['kind'],$input['ids'],$input['decision'],$input['revision'],'Synthetic reviewed correction'),
@@ -773,6 +775,7 @@ try{
     require __DIR__.'/fixtures/time_decision_review_concurrency_checks.php';
     require __DIR__.'/fixtures/time_client_token_concurrency_checks.php';
     require __DIR__.'/fixtures/time_weekly_email_concurrency_checks.php';
+    require __DIR__.'/fixtures/time_csv_intake_concurrency_checks.php';
     require __DIR__.'/fixtures/time_correction_review_concurrency_checks.php';
     $snapshotGraph=static function()use($pdo,$tenant):array{$rows=[];foreach(['placements','staffing_clients','companies','external_entity_mappings','audit_log']as$table){$q=$pdo->prepare('SELECT * FROM '.$table.' WHERE tenant_id=? ORDER BY id');$q->execute([$tenant]);$rows[$table]=$q->fetchAll(PDO::FETCH_ASSOC);}return$rows;};
     $before=$snapshotGraph();$handle=proc_open([PHP_BINARY,dirname(__DIR__).'/scripts/repair_staffing_client_catalog.php',(string)$tenant],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__));

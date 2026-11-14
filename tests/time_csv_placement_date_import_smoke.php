@@ -17,7 +17,8 @@ $assert = static function (string $label, bool $ok) use (&$pass, &$fail): void {
     else { $fail++; echo "  FAIL  {$label}\n"; }
 };
 
-$api = $read('modules/time/api/csv_import.php');
+$api = str_replace("\r\n","\n",$read('modules/time/api/csv_import.php'));
+$api .= (string)file_get_contents($root . '/modules/time/lib/csv_schema.php') . (string)file_get_contents($root . '/modules/time/lib/csv_intake.php');
 $ui = $read('modules/time/ui/CsvImport.jsx');
 $list = $read('modules/staffing/ui/TimesheetsList.jsx');
 $nav = $read('modules/time/ui/TimeWorkspaceNav.jsx');
@@ -27,7 +28,7 @@ $rbac = $read('core/rbac/legacy_map.php');
 
 echo "Time import schema and downloads\n";
 $assert('Placement ID is a typed import field',
-    str_contains($api, "'placement_id'          => ['label' => 'Placement ID', 'type' => 'integer']"));
+    str_contains($api, "'placement_id'          => ['label' => 'Placement ID', 'type' => 'integer', 'reference_type' => 'placement']"));
 $assert('legacy placement external ID remains accepted',
     str_contains($api, "'label' => 'Source placement ID (optional)'")
     && str_contains($api, "'aliases' => ['Placement external ID']"));
@@ -42,11 +43,11 @@ $assert('placement reference download is available',
 $assert('blank time type defaults to regular',
     str_contains($api, "if (\$hourType === '') \$hourType = timeCsvCategoryToHourType"));
 $assert('weekly aggregate rows are accepted',
-    str_contains($api, 'if ($hours > 168)'));
+    str_contains($api, '$hours>168'));
 
 \Core\CsvImportService::registerSchema('__time_id_contract', [
     'fields' => [
-        'placement_id' => ['label' => 'Placement ID', 'type' => 'integer'],
+        'placement_id' => ['label' => 'Placement ID', 'type' => 'integer', 'reference_type' => 'placement'],
         'placement_external_id' => [
             'label' => 'Source placement ID (optional)',
             'aliases' => ['Placement external ID'],
@@ -80,22 +81,20 @@ $assert('date is validated against placement range',
 $assert('duplicate placement/date/type rows are rejected',
     str_contains($api, 'Duplicate placement/date/time type in this file'));
 $assert('missing periods are created automatically',
-    str_contains($api, 'timeOpenPeriodIdForDate') && str_contains($api, 'timeCsvEnsurePeriod'));
+    str_contains($api, 'staffingTimeResolveOpenPeriod'));
 $assert('weekly staffing header is created or reused',
     str_contains($api, 'staffingTimesheetUpsert')
     && str_contains($api, "'source' => 'bulk_upload'")
-    && str_contains($api, "'source_system' => \$sourceSystem"));
+    && str_contains($api, "'source_system'=>\$source"));
 $assert('entries are linked to the staffing timesheet',
-    str_contains($api, "'timesheet_id'  => \$timesheetId"));
+    str_contains($api, "'timesheet_id'=>(int)\$header['id']"));
 $assert('timesheet totals and status are refreshed',
     str_contains($api, 'timeCsvRefreshTimesheet') && str_contains($api, 'timeReconcileTimesheetHeader'));
 $assert('commit returns first-class weekly timesheet identities',
-    str_contains($api, "'timesheets'     => \$timesheetArtifacts ?? []")
-    && str_contains($api, "'display_id' => \$header['display_id']")
-    && str_contains($api, "'artifact_id' => \$header['artifact_id']"));
+    str_contains($api, "'timesheets'=>\$artifacts") && str_contains($api, "'id','display_id','artifact_id'"));
 $assert('repeat import supports source-row and composite matching',
-    str_contains($api, 'source_system = :s AND external_id = :e')
-    && str_contains($api, 'placement_id = :pl AND person_id = :p'));
+    str_contains($api, 'source_system=:source AND external_id=:external')
+    && str_contains($api, 'placement_id=:placement AND person_id=:person'));
 
 echo "\nOperator UI\n";
 $assert('time workflow names the importer plainly',

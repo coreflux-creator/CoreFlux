@@ -89,18 +89,17 @@ $a("persist payload writes external_id + source_system",
 // ----------------------------------------------------------------- Time
 echo "\nmodules/time/api/csv_import.php — time entries\n";
 $timp = (string) file_get_contents($ROOT . '/modules/time/api/csv_import.php');
+$timp .= (string)file_get_contents($ROOT . '/modules/time/lib/csv_schema.php') . (string)file_get_contents($ROOT . '/modules/time/lib/csv_intake.php');
 $a("registers external_id field",                 $c($timp, "'external_id'           => ['label' => 'External ID"));
 $a("registers source_system enum field",          $c($timp, "'source_system'         => ['label' => 'Source system',"));
 $a("unique_within_batch on entry and external IDs", $c($timp, "'unique_within_batch' => ['entry_id', 'external_id']"));
 $a("update-existing prefers (src,ext) over composite",
-                                                  $c($timp, "AND source_system = :s AND external_id = :e"));
+                                                  $c($timp, "AND source_system=:source AND external_id=:external"));
 $a("scopedInsert writes external_id + source_system",
-                                                  $c($timp, "'external_id'   => \$externalId,")
-                                               && $c($timp, "'source_system' => \$sourceSystem,"));
+                                                  $c($timp, "'external_id'=>\$external,")
+                                               && $c($timp, "'source_system'=>\$source,"));
 $a("approved and settled rows stay immutable on every update path",
-                                                  $c($timp, "['draft', 'pending_review', 'rejected']")
-                                               && $c($timp, 'cannot be updated by CSV')
-                                               && $c($timp, 'has already been settled and cannot be updated by CSV'));
+                                                  $c($timp, 'staffingTimeAssertEditableEntry($existing)') && $c($timp, 'timeNativeAssertNoFinancialHistory($existing)'));
 
 // ----------------------------------------------------------------- frontend
 echo "\ndashboard/src/components/CsvImportPage.jsx — audit-field UI\n";
