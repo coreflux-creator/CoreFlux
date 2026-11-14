@@ -103,16 +103,52 @@ function thunderhawkTimePayrollUnlock(PDO $pdo): void
     $pdo->exec('UNLOCK TABLES');$pdo->exec('SET autocommit=1');
 }
 
-/** Every statement is journaled before execution. DDL is not transactionally rolled back. */
-function thunderhawkTimePayrollApply(PDO $pdo,array $plan,callable $journal): void
+/** Create only previously absent evidence tables, before taking the final native lock set. */
+function thunderhawkTimePayrollPrepareEvidence(PDO $pdo,array $plan,callable $journal): array
 {
+    if($pdo->inTransaction()||(int)$pdo->query('SELECT @@autocommit')->fetchColumn()!==1)throw new RuntimeException('Evidence preparation needs a clean connection');
+    $existing=$pdo->query("SHOW FULL TABLES WHERE Table_type='BASE TABLE'")->fetchAll(PDO::FETCH_COLUMN);
+    if(array_intersect(TH_TIME_PAYROLL_NEW_TABLES,$existing))throw new RuntimeException('Evidence preparation already started; inspect retained receipt');
+    $prepared=[];
+    foreach($plan as$path=>$migration)foreach($migration['statements']as$index=>$statement){
+        if(!preg_match('/^CREATE TABLE IF NOT EXISTS ([a-z_]+)\s*\(/D',$statement,$m))continue;
+        $table=$m[1];
+        if(!in_array($table,TH_TIME_PAYROLL_NEW_TABLES,true))throw new RuntimeException('Unreviewed new evidence table');
+        $journal(['phase'=>'table_create_start','path'=>$path,'statement'=>$index,'table'=>$table,'sha256'=>hash('sha256',$statement)]);
+        $pdo->exec($statement);
+        $schema=$pdo->query('SHOW CREATE TABLE `'.$table.'`')->fetch(PDO::FETCH_NUM)[1];
+        $prepared[$table]=['path'=>$path,'statement'=>$index,'statement_sha256'=>hash('sha256',$statement),'schema_sha256'=>hash('sha256',$schema)];
+        $journal(['phase'=>'table_create_complete','table'=>$table]+$prepared[$table]);
+    }
+    if(array_keys($prepared)!==TH_TIME_PAYROLL_NEW_TABLES)throw new RuntimeException('Incomplete evidence-table preparation');
+    return $prepared;
+}
+
+/** Recheck after acquiring locks: preparation never authorizes a stale business-data baseline. */
+function thunderhawkTimePayrollPrepared(PDO $pdo,array $before,array $prepared): void
+{
+    if(array_keys($prepared)!==TH_TIME_PAYROLL_NEW_TABLES)throw new RuntimeException('Missing evidence preparation receipt');
+    if(thunderhawkTimePayrollTableState($pdo,$before['tables'])!==$before['tables'])throw new RuntimeException('Original records changed before the upgrade lock');
+    foreach($prepared as$table=>$receipt){
+        $schema=$pdo->query('SHOW CREATE TABLE `'.$table.'`')->fetch(PDO::FETCH_NUM)[1];
+        if(hash('sha256',$schema)!==$receipt['schema_sha256']||(int)$pdo->query('SELECT COUNT(*) FROM `'.$table.'`')->fetchColumn()!==0)throw new RuntimeException('Prepared evidence table changed: '.$table);
+    }
+}
+
+/** Every statement is journaled before execution. DDL is not transactionally rolled back. */
+function thunderhawkTimePayrollApply(PDO $pdo,array $plan,array $before,array $prepared,callable $journal): void
+{
+    thunderhawkTimePayrollPrepared($pdo,$before,$prepared);
     foreach($plan as$path=>$migration){
         $journal(['phase'=>'migration_start','path'=>$path,'sha256'=>$migration['sha256']]);
         $pdo->prepare('INSERT INTO _migrations(filename,sha256,last_error,duration_ms) VALUES (?,?,?,0)')
             ->execute([$migration['filename'],$migration['sha256'],'Pilot upgrade in progress; inspect retained statement journal before recovery']);
         foreach($migration['statements']as$index=>$statement){
             $journal(['phase'=>'statement_start','path'=>$path,'statement'=>$index,'sha256'=>hash('sha256',$statement)]);
-            $pdo->exec($statement);
+            if(preg_match('/^CREATE TABLE IF NOT EXISTS ([a-z_]+)\s*\(/D',$statement,$m)){
+                $receipt=$prepared[$m[1]]??null;
+                if(!$receipt||$receipt['path']!==$path||$receipt['statement']!==$index||$receipt['statement_sha256']!==hash('sha256',$statement))throw new RuntimeException('Evidence preparation differs from migration');
+            }else{$pdo->exec($statement);}
             $journal(['phase'=>'statement_complete','path'=>$path,'statement'=>$index]);
         }
         $pdo->prepare('UPDATE _migrations SET last_error=NULL WHERE filename=? AND sha256=?')->execute([$migration['filename'],$migration['sha256']]);

@@ -39,6 +39,13 @@ try{
     $baseline=thunderhawkTimePayrollSchemaBaseline($pdo,$plan);
     $check(count($plan)===7,'all seven pending migrations are pinned to reviewed source');
     $check($baseline['tables']['payroll_runs']['rows']===1&&$baseline['tables']['payroll_earnings']['rows']===3,'old approved payroll and mixed historical earnings are populated');
+    $journal=[];$record=static function(array $event)use(&$journal):void{$journal[]=$event;};
+    $prepared=thunderhawkTimePayrollPrepareEvidence($pdo,$plan,$record);
+    $check(count($prepared)===4,'only the four empty evidence tables are prepared before locking');
+    $pdo->exec("UPDATE pilot_unrelated_records SET value='concurrent change' WHERE id=1");
+    $refused=false;try{thunderhawkTimePayrollPrepared($pdo,$baseline,$prepared);}catch(RuntimeException $e){$refused=true;}
+    $check($refused,'changed records between preparation and native locks invalidate the baseline');
+    $pdo->exec("UPDATE pilot_unrelated_records SET value='preserve unrelated identity' WHERE id=1");
     thunderhawkTimePayrollLock($pdo);$locked=true;
     $blocked=static function(string $sql)use($connect):bool{
         $other=$connect();$other->exec('SET SESSION lock_wait_timeout=1');$other->exec('SET SESSION innodb_lock_wait_timeout=1');
@@ -46,8 +53,8 @@ try{
     };
     $check($blocked('UPDATE payroll_runs SET net_total_cents=1 WHERE id=1'),'independent payroll writer waits for the upgrade lock');
     $check($blocked("UPDATE pilot_unrelated_records SET value='changed' WHERE id=1"),'unrelated business writer is fenced during the upgrade');
-    $journal=[];
-    thunderhawkTimePayrollApply($pdo,$plan,static function(array $event)use(&$journal):void{$journal[]=$event;});
+    $check($blocked('DELETE FROM time_csv_imports'),'new evidence tables join the same native writer hold');
+    thunderhawkTimePayrollApply($pdo,$plan,$baseline,$prepared,$record);
     $report=thunderhawkTimePayrollPreserved($pdo,$baseline,$plan);
     $check($report['applied_migrations']===7&&$report['new_evidence_tables']===4,'all migrations complete and new evidence tables are empty');
     $check($report['preserved_tables']===8,'every prior table retains its original projected values');
@@ -80,8 +87,9 @@ try{
     foreach($plan as$m)$pdo->prepare('DELETE FROM _migrations WHERE filename=?')->execute([$m['filename']]);
     $beforeFailure=thunderhawkTimePayrollSchemaBaseline($pdo,$plan);
     $check($beforeFailure===$baseline,'rehearsal restores the exact original values before failure injection');
+    $prepared=thunderhawkTimePayrollPrepareEvidence($pdo,$plan,$record);
     thunderhawkTimePayrollLock($pdo);$locked=true;$partial=[];$failed=false;
-    try{thunderhawkTimePayrollApply($pdo,$plan,static function(array $e)use(&$partial):void{
+    try{thunderhawkTimePayrollApply($pdo,$plan,$beforeFailure,$prepared,static function(array $e)use(&$partial):void{
         $partial[]=$e;
         if($e['phase']==='statement_start'&&$e['path']==='core/migrations/200_client_source_ownership.sql'&&$e['statement']===4)throw new RuntimeException('CI stop before client ALTER execution');
     });}catch(RuntimeException $e){$failed=$e->getMessage()==='CI stop before client ALTER execution';}
