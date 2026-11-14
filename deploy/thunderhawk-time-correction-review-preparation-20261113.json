@@ -1,0 +1,200 @@
+{
+  "scope": "Reviewed approved-time correction, original/replacement history, permanent review identities and actual downstream-history guards. Source acceptance only.",
+  "previous_goal_turn": "No integration progress: standalone accounting production status answered. This continuation revalidated source, completed the operator workflow and tested real sessions and independent connections.",
+  "source_commit": "a2241e513858d1c66f75abb4441cac7cb5660dfb",
+  "base_commit": "0c997b99a194d83c25f2d21a494e82212a0c4444",
+  "source_files_sha256_lf": {
+    ".github/workflows/ci.yml": "ab83754e7942cda636a58c06c62daece683e5759ba5c3ee8980bc0cd9bb908aa",
+    "dashboard/tests/placementTimesheetViews.test.mjs": "0d18cf2414d04cea1e442c7a8220187583d3551b0f01c93d151a6de808508ce5",
+    "dashboard/tests/timeEntryCorrection.test.mjs": "6cc0e78691e526067074fc237767e04a3e57318aa327326c8223c515021d0660",
+    "modules/staffing/api/timesheets.php": "212701167d437c6be99940534aac09d9958c85c01c99e0103343bfec7bd5c885",
+    "modules/staffing/ui/TimesheetDetail.jsx": "b723de5fff6f69c73d849ffffb43bf4b4058f90035f796ed4f9a2a851492d6e4",
+    "modules/time/api/entries.php": "f79c6dc5d9698c525582a994c7431c6ded4e9daf30c971399239df047affb11c",
+    "modules/time/lib/native_entries.php": "5931a30ccc00b5cd1767663059d4b3587d8ce60b1147a8f84c8411fe78d44d7f",
+    "modules/time/ui/TimeEntryCorrection.jsx": "96818da9419a9ee1dc0feb11c109e8829ae9d3ffc094c43762045e5546f4a9ef",
+    "modules/time/ui/TimeEntryHistory.jsx": "88530d7578ce4c1146deb7bd3cb856aeb20d09a0cc3da7a2a37d378068ca8835",
+    "modules/time/ui/TimeModule.jsx": "a2f662682ae0948324b07f1b2a769310f7b01071e7c9bd512d040858e044e004",
+    "tests/company_relationship_concurrency_db.php": "75cfb958765e24526a4b0d0156b552f3330e44e771134e2ed20d741c23a43244",
+    "tests/fixtures/generic_time_concurrency_checks.php": "40c81c9f87b2a0805394ef2e958a4ecdbe8e6845d46f175f4a5e6187a7868ce4",
+    "tests/fixtures/generic_time_edit_http_checks.php": "eb348edd6ca56876fdd800e52f0b69be6d8dd5673f6922d3d1eec9d9c2dcef7d",
+    "tests/fixtures/placement_contract_http_router.php": "687bcf4fdd7eb4e00150b32d16dbbc6fa446de8bffffb144549f740c461a6153",
+    "tests/fixtures/time_correction_review_concurrency_checks.php": "8d69567f85524d4399f4c9c3895c131954c1a3088e1eefd9b40808ac40cfec55",
+    "tests/fixtures/time_correction_review_http_checks.php": "6999b68c14f514efb1b5d265c1152c25305faa82b81b0872cac1ec0a1aa2d971",
+    "tests/timesheet_end_to_end_guardrails_smoke.php": "fa4db8ba769822925fc42f1a0858af01108026d3aeb9f1439c040e8929f9a823"
+  },
+  "ci": {
+    "run_id": 43536532220,
+    "url": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43536532220",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 132266804205,
+        "name": "Full-Core actual native writer observation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132266804345,
+        "name": "Smoke (ui)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132266804348,
+        "name": "Smoke (modules)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132266804373,
+        "name": "CoreAccounting standalone empty-database install",
+        "conclusion": "success"
+      },
+      {
+        "id": 132266804378,
+        "name": "Sim scenario dry-runs (determinism)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132266804453,
+        "name": "Smoke (core)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132266804461,
+        "name": "CoreAccounting standalone release package",
+        "conclusion": "success"
+      },
+      {
+        "id": 132266804479,
+        "name": "Full-Core maintenance Apache rehearsal",
+        "conclusion": "success"
+      },
+      {
+        "id": 132266804522,
+        "name": "Smoke (harness)",
+        "conclusion": "success"
+      },
+      {
+        "id": 132266804523,
+        "name": "Live business graph simulation",
+        "conclusion": "success"
+      },
+      {
+        "id": 132266804571,
+        "name": "Full-Core guarded upgrade and paired recovery",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "acceptance": {
+    "independent_connection_checks": 654,
+    "required_correction_races": [
+      "Reviewed correction waits for concurrent entry COMMIT",
+      "Reviewed correction refuses committed entry without replacing approved time: {\"ok\":false,\"code\":409,\"error\":\"The approved time or its assignment changed. Reload the correction review before saving.\"}",
+      "Reviewed correction waits for concurrent placement COMMIT",
+      "Reviewed correction refuses committed placement without replacing approved time: {\"ok\":false,\"code\":409,\"error\":\"The approved time or its assignment changed. Reload the correction review before saving.\"}",
+      "Reviewed correction waits for concurrent header COMMIT",
+      "Reviewed correction refuses committed header without replacing approved time: {\"ok\":false,\"code\":409,\"error\":\"The approved time or its assignment changed. Reload the correction review before saving.\"}",
+      "Reviewed correction waits for concurrent accounting COMMIT",
+      "Reviewed correction refuses committed accounting without replacing approved time: {\"ok\":false,\"code\":409,\"error\":\"This week has accounting history. Use its downstream correction workflow to preserve the ledger.\"}",
+      "Reviewed correction waits for concurrent invoice COMMIT",
+      "Reviewed correction refuses committed invoice without replacing approved time: {\"ok\":false,\"code\":409,\"error\":\"This time has a linked invoice or vendor bill. Use its downstream correction workflow.\"}",
+      "Reviewed correction waits for concurrent bundle COMMIT",
+      "Reviewed correction refuses committed bundle without replacing approved time: {\"ok\":false,\"code\":409,\"error\":\"Downstream preparation must be reviewed before this time can be corrected.\"}",
+      "Reviewed correction waits for concurrent entry ROLLBACK",
+      "Reviewed correction accepts unchanged facts after rolled-back entry: {\"ok\":true,\"result\":{\"id\":67,\"ok\":true,\"workspace_id\":990671,\"superseded_entry_id\":66,\"new_entry_id\":67,\"timesheet_id\":53,\"original_timesheet_id\":53}}",
+      "Reviewed correction waits for concurrent placement ROLLBACK",
+      "Reviewed correction accepts unchanged facts after rolled-back placement: {\"ok\":true,\"result\":{\"id\":69,\"ok\":true,\"workspace_id\":990671,\"superseded_entry_id\":68,\"new_entry_id\":69,\"timesheet_id\":54,\"original_timesheet_id\":54}}",
+      "Reviewed correction waits for concurrent header ROLLBACK",
+      "Reviewed correction accepts unchanged facts after rolled-back header: {\"ok\":true,\"result\":{\"id\":71,\"ok\":true,\"workspace_id\":990671,\"superseded_entry_id\":70,\"new_entry_id\":71,\"timesheet_id\":55,\"original_timesheet_id\":55}}",
+      "Reviewed correction waits for concurrent accounting ROLLBACK",
+      "Reviewed correction accepts unchanged facts after rolled-back accounting: {\"ok\":true,\"result\":{\"id\":73,\"ok\":true,\"workspace_id\":990671,\"superseded_entry_id\":72,\"new_entry_id\":73,\"timesheet_id\":56,\"original_timesheet_id\":56}}",
+      "Reviewed correction waits for concurrent invoice ROLLBACK",
+      "Reviewed correction accepts unchanged facts after rolled-back invoice: {\"ok\":true,\"result\":{\"id\":75,\"ok\":true,\"workspace_id\":990671,\"superseded_entry_id\":74,\"new_entry_id\":75,\"timesheet_id\":57,\"original_timesheet_id\":57}}",
+      "Reviewed correction waits for concurrent bundle ROLLBACK",
+      "Reviewed correction accepts unchanged facts after rolled-back bundle: {\"ok\":true,\"result\":{\"id\":77,\"ok\":true,\"workspace_id\":990671,\"superseded_entry_id\":76,\"new_entry_id\":77,\"timesheet_id\":58,\"original_timesheet_id\":58}}"
+    ],
+    "native_core_session_checks": 953,
+    "placement_contract_http_checks": 707,
+    "required_correction_http_checks": [
+      "Approved native time exposes a read-only correction review",
+      "Correction review requires sign-in",
+      "Read-only time access cannot prepare a correction",
+      "Read-only time access can follow original and replacement history",
+      "Timesheet screen distinguishes read-only history from correction authority",
+      "Time managers receive correction navigation in the original workspace",
+      "Correction review reads source and current permanent identities without creating or changing records",
+      "Manual correction requires the reviewed original revision",
+      "A different correction review cannot replace this original",
+      "Correction cannot silently accept changed approved evidence after review",
+      "Correction cannot silently accept a changed assignment after review",
+      "Retained parent-ledger accounting history blocks ordinary correction before any posting",
+      "Actual billing source lines protect time even without extracted flags",
+      "Actual ap source lines protect time even without extracted flags",
+      "Unrelated bundle number equal to entry number does not falsely prevent correction",
+      "Original entry membership finds a linked invoice bundle despite absent consumption flags",
+      "Ready downstream amounts cannot silently retain superseded original time",
+      "Consumed source bundle remains protected even when document lines are absent",
+      "Original correction history survives placement retirement without rewriting identity",
+      "Retained history does not grant correction of a retired assignment",
+      "Cyclic correction history is refused without rewriting rows",
+      "Ambiguous predecessors cannot be presented as a valid correction chain",
+      "Reviewed correction returns both original and replacement weeks after a date change",
+      "Replacement does not inherit approval, rate or dimension authority",
+      "Reviewed cross-week correction updates both totals once",
+      "Replacement history links back to its original and records the correction reason",
+      "Multiple reviewed corrections retain the full ordered original and replacement chain",
+      "Shared directories do not expose another workspace time correction or history",
+      "A replacement pointer cannot disclose foreign-workspace time or silently truncate its history"
+    ],
+    "synthetic_actor_retired": true,
+    "owned_server_stopped": true,
+    "private_session_files_removed": true
+  },
+  "local_checks": {
+    "rendered_ui": 48,
+    "focused_eslint": "passed",
+    "frontend_build": "passed, dashboard root, 6134 modules",
+    "php_syntax": "passed",
+    "workflow_alignment": 57,
+    "end_to_end_guardrails": 22,
+    "first_class_artifact": 28,
+    "placement_drill_in": 65,
+    "inline_edit": 99,
+    "upload": 66,
+    "weekly_shell": 66
+  },
+  "initial_run": {
+    "run_id": 43535617502,
+    "source_commit": "6abed67b08b4a17f74eaa0524a24545c5a042ce6",
+    "note": "Ten jobs passed, including 654 concurrency, 953 native session and 707 contract HTTP checks. Core smoke exposed new navigation bypassing resolved platform-admin context. Fixed navigation and correction/history endpoints to use the existing context-aware permission path; added permanent person/placement numbers to review. Final acceptance is tied to the exact successful candidate."
+  },
+  "explicit_validation": "Added workflow_dispatch after final remote push had no run/check records. This invokes the existing disposable CI suite and no deployment workflow.",
+  "hosted_pilot": {
+    "installed_source_commit": "4bc10bb07791ceb7b2867f8dde28ce539cb5fd51",
+    "candidate_installed": false,
+    "read_only_verification": {
+      "checked_at": "2026-11-14T00:39:52+00:00",
+      "passed": true,
+      "runtime_pins_verified": 367,
+      "tables_verified": 378,
+      "rows_preserved": 35304,
+      "configuration_preserved": true,
+      "synthetic_reviewer_retired": true,
+      "temporary_credentials_absent": true,
+      "temporary_probe_absent": true,
+      "synthetic_company_retired": true
+    }
+  },
+  "remaining": [
+    "Protected generic/weekly submit, reject and approval with current directory ownership, original periods, frozen rates/dimensions and required receipts",
+    "Tokenized client and preapproved CSV entrypoints aligned with the same complete reviewed-set contract",
+    "Paired financial correction, downstream preparation/reservation reconciliation and secondary aggregated-entry provenance",
+    "Original-workspace category/setup/period/CSV consumers and custom bucket/overtime/payable semantics",
+    "Generic placement CSV, AP/current references, native job ownership/lifecycle and stable outbound QuickBooks customer identity",
+    "Required migrations, guarded pilot upgrade and signed-in hosted acceptance",
+    "Complete field/portal/onboarding/document/time/approval/results/reconciliation round trip"
+  ],
+  "production_changed": false,
+  "arabella_changed": false,
+  "real_provider_payroll_payment_or_posting_executed": false,
+  "full_goal_complete": false
+}
