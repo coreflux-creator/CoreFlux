@@ -283,6 +283,9 @@ function payrollAccountingStaffingAccrualGroups(
           WHERE tenant_id=? AND event_type='staffing.worker_hours.approved'
             AND source_module='staffing' AND source_record_id IN (?,?,?) ORDER BY id".$lock
     );
+    $handoffs = $pdo->prepare('SELECT status,accounting_tenant_id FROM time_accounting_handoffs
+        WHERE tenant_id=? AND timesheet_id=? AND is_current=1'.$lock);
+    $handoffBySheet = [];
     $groups = [];
     $seenEntries = [];
     foreach ($employeeRows as $employeeId => $employee) {
@@ -312,11 +315,27 @@ function payrollAccountingStaffingAccrualGroups(
             $timesheetId=(int)($entry['timesheet_id']??0);
             $placementId=(int)$entry['placement_id'];
             if ($timesheetId<=0 || $placementId<=0) throw new RuntimeException('The approved payroll source has no original timesheet or placement.',409);
+            if (!array_key_exists($timesheetId,$handoffBySheet)) {
+                $handoffs->execute([$tenantId,$timesheetId]);
+                $handoffBySheet[$timesheetId]=$handoffs->fetch(PDO::FETCH_ASSOC)?:null;
+            }
+            $handoff=$handoffBySheet[$timesheetId];
+            if ($handoff && $handoff['status']!=='posted') {
+                throw new RuntimeException('The approved week has a pending or failed accounting request. Resolve it before posting payroll so labor is recorded only once.',409);
+            }
+            if ($handoff && (int)$handoff['accounting_tenant_id']!==$accountingTenantId) {
+                throw new RuntimeException('The approved week accounting owner changed. Reconcile the original liability before posting payroll.',409);
+            }
             $base='timesheet:'.$timesheetId.':placement:'.$placementId.':'.$engagement;
             $legacy=$timesheetId.':'.$engagement;
             $events->execute([$accountingTenantId,$base,$base.':segment:'.substr((string)$entry['dimension_snapshot_hash'],0,24),$legacy]);
             $matches=$events->fetchAll(PDO::FETCH_ASSOC);
-            if (!$matches) continue;
+            if (!$matches) {
+                if ($handoff || (int)($snapshot['approved_rate_version']??0)>=1) {
+                    throw new RuntimeException('The approved week accounting request or posted source is missing. Reconcile it before posting payroll.',409);
+                }
+                continue;
+            }
             if (array_filter($matches,static fn(array $event):bool=>$event['source_record_id']===$legacy)) {
                 throw new RuntimeException('Payroll run #'.$runId.' includes time booked by a legacy aggregate staffing accrual. '
                     .'Reconcile that timesheet posting by assignment before posting payroll; otherwise labor would be counted twice.',409);

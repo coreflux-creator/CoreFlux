@@ -26,6 +26,10 @@ that supports the source amount. Failed events, missing/reversed journals,
 changed liability amounts, overlapping assignment/segment events and legacy
 aggregate coverage require reconciliation. They cannot silently become new wage
 expense. Legacy aggregate and assignment events cannot both clear one source.
+Pending or failed approved-week accounting requests must finish before payroll
+posts. A new retained approval without its handoff/source journal also refuses,
+so payroll cannot recognize new expense while the delayed time handoff later
+recognizes the same labor. Changing the saved accounting owner requires review.
 
 The payroll run, employee lines, retained time and existing accruals stay locked
 through journal creation and linking. A mandatory link failure rolls back the

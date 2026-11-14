@@ -94,8 +94,27 @@ try {
     $events=timeStaffingAccountingEvents($tenant,$sheet);
     $check(count($events)===1 && $events[0]['payload']['wage_cost']===200.0 && $events[0]['payload']['cost']===216.0,
         'native approved-time emitter retains wages and employer burden');
+    $before=$counts();
+    $check($refuses(fn()=>payrollPostRunAccrual($tenant,$run,$actor),'accounting request or posted source is missing') && $counts()===$before,
+        'retained approval without its accounting handoff cannot become a second expense');
+    $eventsJson=staffingDimensionSnapshotCanonicalJson($events);
+    $pdo->prepare('INSERT INTO time_accounting_handoffs(tenant_id,timesheet_id,accounting_tenant_id,events_hash,events_json,status)
+        VALUES (?,?,?,?,?,"pending")')->execute([$tenant,$sheet,$tenant,hash('sha256',$eventsJson),$eventsJson]);
+    $handoff=(int)$pdo->lastInsertId();
+    $check($refuses(fn()=>payrollPostRunAccrual($tenant,$run,$actor),'pending or failed accounting request') && $counts()===$before,
+        'pending approved-week accounting must finish before payroll can recognize or clear labor');
+    $pdo->prepare('UPDATE time_accounting_handoffs SET status="failed" WHERE id=?')->execute([$handoff]);
+    $check($refuses(fn()=>payrollPostRunAccrual($tenant,$run,$actor),'pending or failed accounting request') && $counts()===$before,
+        'failed week accounting cannot silently fall back to new payroll expense');
+    $pdo->prepare('UPDATE time_accounting_handoffs SET status="posted" WHERE id=?')->execute([$handoff]);
+    $check($refuses(fn()=>payrollPostRunAccrual($tenant,$run,$actor),'accounting request or posted source is missing') && $counts()===$before,
+        'a posted handoff label without its actual source journal cannot authorize payroll');
     $source=accountingProcessEvent($tenant,$events[0],$actor);
     $check($source['status']==='posted','native staffing source posts to the actual disposable ledger');
+    $pdo->prepare('UPDATE time_accounting_handoffs SET accounting_tenant_id=999 WHERE id=?')->execute([$handoff]);
+    $check($refuses(fn()=>payrollPostRunAccrual($tenant,$run,$actor),'accounting owner changed'),
+        'a saved accounting owner cannot silently move when payroll posts');
+    $pdo->prepare('UPDATE time_accounting_handoffs SET accounting_tenant_id=? WHERE id=?')->execute([$tenant,$handoff]);
     $sourceJournal=(int)$source['journal_entry_id'];
     $employeeRows=payrollAccountingRunEmployeeRows($tenant,$run);
     $check((int)$employeeRows[$employee]['person_id']===$person,'payroll posting uses the canonical new-person employment link');
