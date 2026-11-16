@@ -18,7 +18,7 @@ $entry=['id'=>1,'placement_id'=>8,'work_date'=>'2026-10-05','hours'=>'8.00','cat
 $rate=['id'=>3,'placement_id'=>8,'currency'=>'USD','approved_at'=>'2026-10-01 00:00:00',
     'pay_rate'=>'65.0000','pay_rate_unit'=>'hour','bill_rate'=>'98.0000','bill_rate_unit'=>'hour',
     'adjusted_bill_rate'=>null,'ot_multiplier'=>'1.50','dt_multiplier'=>'2.00'];
-$read=static fn(array $e=[],array $r=[])=>staffingReconciliationTime([array_replace($entry,$e)],[3=>array_replace($rate,$r)],$period);
+$read=static fn(array $e=[],array $r=[])=>staffingReconciliationTime([array_replace($entry,$e)],[1=>['rate'=>array_replace($rate,$r),'reason'=>null]],$period);
 $time=$read();
 $check($time['approved_hours']==='8.00'&&$time['pay_amount']==='520.00'&&$time['bill_amount']==='784.00','approved frozen rates give exact hourly comparison');
 $check($time['original_client_approval_proven']===false,'Core approval is not promoted to original client approval');
@@ -52,6 +52,14 @@ $outside=staffingReconciliationDifference('520.00','520.00','USD','USD',false);
 $check($outside['numeric_difference']===null,'unlike work periods do not produce a numeric comparison');
 $match=staffingReconciliationDifference('520.01','520.00','USD','USD',true);
 $check($match['monetary_difference']==='0.01'&&$match['allocation_proven']===false,'exact arithmetic does not establish allocation');
-$mixed=staffingReconciliationTime([$entry,array_replace($entry,['id'=>2,'rate_snapshot_id'=>4])],[3=>$rate,4=>array_replace($rate,['currency'=>'EUR'])],$period);
+$mixed=staffingReconciliationTime([$entry,array_replace($entry,['id'=>2,'rate_snapshot_id'=>4])],[1=>['rate'=>$rate],2=>['rate'=>array_replace($rate,['currency'=>'EUR'])]],$period);
 $check($mixed['approved_hours']==='16.00'&&$mixed['currency']===null&&$mixed['pay_amount']===null,'mixed currencies preserve hours without adding monetary totals');
+$versions=staffingReconciliationTime([$entry,array_replace($entry,['id'=>2])],[1=>['rate'=>$rate],2=>['rate'=>array_replace($rate,['pay_rate'=>'75.0000'])]],$period);
+$check($versions['pay_amount']==='1120.00','two approvals of one rate ID retain their distinct approved prices');
+$missing=staffingReconciliationTime([$entry],[1=>['rate'=>null,'reason'=>'Original approval evidence is missing.']],$period);
+$check($missing['approved_hours']==='8.00'&&$missing['pay_amount']===null&&$missing['entries'][0]['rate_evidence_detail']==='Original approval evidence is missing.','missing approval evidence retains hours and explains unavailable amounts');
+$check(staffingReconciliationTime([$entry],[3=>['rate'=>$rate]],$period)['pay_amount']===null,'a rate-ID map cannot silently substitute for per-entry approval evidence');
+foreach(['locked','billing_ready','payroll_ready']as$status)$check($read(['status'=>$status])['pay_amount']==='520.00','accepted downstream state retains approved economics: '.$status);
+$check($read(['approved_by_user_id'=>null,'approved_via'=>'tokenized_client_email','client_approver_email'=>'reviewer@example.test'])['pay_amount']==='520.00','tokenized client approval does not require an internal user ID');
+$check($read(['approved_by_user_id'=>null,'approved_via'=>'tokenized_client_email','client_approver_email'=>'invalid'])['approved_entries']===0,'invalid client approval is not accepted');
 echo "Staffing reconciliation: $passed passed\n";

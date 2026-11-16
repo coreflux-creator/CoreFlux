@@ -54,6 +54,14 @@ function staffingReconciliationCharge(string $hours,string $rate,string $multipl
     return purepayObservationMoney(intdiv($h*$effective+5000,10000));
 }
 
+function staffingReconciliationEntryApproved(array $entry): bool
+{
+    return empty($entry['superseded_by_id'])&&in_array($entry['status'],['approved','locked','billing_ready','payroll_ready'],true)
+        &&!empty($entry['approved_at'])&&((int)($entry['approved_by_user_id']??0)>0
+            ||(($entry['approved_via']??null)==='tokenized_client_email'&&filter_var($entry['client_approver_email']??'',FILTER_VALIDATE_EMAIL)));
+}
+
+/** $rates contains verified approval evidence keyed by entry, never by the mutable rate ID. */
 function staffingReconciliationTime(array $entries,array $rates,array $period): array
 {
     $rows=[];$approvedHours=0;$payHours=0;$billHours=0;$currencies=[];$pay=0;$bill=0;
@@ -61,8 +69,9 @@ function staffingReconciliationTime(array $entries,array $rates,array $period): 
     foreach($entries as$entry){
         if($entry['work_date']<$period['start']||$entry['work_date']>$period['end'])continue;
         $issues=[];$active=empty($entry['superseded_by_id']);
-        $accepted=$active&&$entry['status']==='approved'&&!empty($entry['approved_at'])&&!empty($entry['approved_by_user_id']);
-        $rate=$rates[(int)($entry['rate_snapshot_id']??0)]??null;$payAmount=null;$billAmount=null;$currency=null;
+        $accepted=staffingReconciliationEntryApproved($entry);
+        $evidence=$rates[(int)$entry['id']]??null;
+        $rate=$evidence['rate']??null;$payAmount=null;$billAmount=null;$currency=null;
         $hours=null;
         try{$hours=staffingReconciliationScaled($entry['hours'],2,4);}catch(InvalidArgumentException $e){$issues[]='hours_unavailable';}
         if(!$active)$issues[]='superseded';elseif(!$accepted)$issues[]='not_approved';
@@ -110,6 +119,8 @@ function staffingReconciliationTime(array $entries,array $rates,array $period): 
             'superseded_by'=>$entry['superseded_by_id']===null?null:(int)$entry['superseded_by_id'],
             'source'=>$entry['source_system']??$entry['source'],'source_reference'=>$entry['external_id']??null,
             'rate_snapshot_id'=>$entry['rate_snapshot_id']===null?null:(int)$entry['rate_snapshot_id'],
+            'rate_evidence'=>$accepted?($rate===null?'unavailable':'verified'):'not_applicable',
+            'rate_evidence_detail'=>$accepted&&$rate===null?($evidence['reason']??'The original approved rate has not been verified.'):null,
             'currency'=>$currency,'pay_amount'=>$payAmount,'bill_amount'=>$billAmount,'issues'=>array_values(array_unique($issues))];
     }
     $currency=count($currencies)===1?array_key_first($currencies):null;

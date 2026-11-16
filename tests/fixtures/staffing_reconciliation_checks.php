@@ -8,6 +8,19 @@ $pdo->exec("INSERT INTO time_entries VALUES
     (71,1,1,1,'2026-10-05',8,'regular_billable','regular','approved','2026-10-19',7,NULL,7,1,1,'quanta','quanta','synthetic-71'),
     (72,1,1,1,'2026-10-06',8,'regular_billable','regular','submitted',NULL,NULL,NULL,NULL,1,1,'quanta','quanta','synthetic-72'),
     (73,2,1,1,'2026-10-05',999,'regular_billable','regular','approved','2026-10-19',7,NULL,7,1,1,'private','private','foreign-source')");
+$pdo->exec("ALTER TABLE time_entries ADD approved_via VARCHAR(40) DEFAULT 'manual',ADD client_approver_email VARCHAR(255) NULL,ADD dimension_snapshot_json LONGTEXT NULL,ADD dimension_snapshot_hash CHAR(64) NULL");
+foreach(coreflux_split_sql_statements(file_get_contents(__DIR__.'/../../core/migrations/203_time_approval_economics.sql'))as$sql)$pdo->exec($sql);
+// Retained evidence for invented approvals. The native approval writer has its own canonical-schema acceptance.
+$archiveComparisonEntry=static function(int $id,?array $rate=null)use($pdo):void{
+    $q=$pdo->prepare('SELECT * FROM time_entries WHERE id=?');$q->execute([$id]);$entry=$q->fetch(PDO::FETCH_ASSOC);
+    if($rate===null){$q=$pdo->prepare('SELECT * FROM placement_rates WHERE id=?');$q->execute([$entry['rate_snapshot_id']]);$rate=$q->fetch(PDO::FETCH_ASSOC);}
+    $rateJson=staffingDimensionSnapshotCanonicalJson($rate);$rateHash=hash('sha256',$rateJson);
+    $snapshot=staffingDimensionSnapshotCanonicalJson(['source_rate_hash'=>$rateHash,'approved_rate_version'=>1]);
+    $pdo->prepare('UPDATE time_entries SET dimension_snapshot_json=?,dimension_snapshot_hash=? WHERE id=?')->execute([$snapshot,hash('sha256',$snapshot),$id]);
+    $pdo->prepare('INSERT INTO time_approval_rates(tenant_id,time_entry_id,placement_id,rate_owner_tenant_id,rate_id,source_rate_hash,entry_facts_hash,rate_json) VALUES(?,?,?,?,?,?,?,?)')
+        ->execute([$entry['tenant_id'],$id,$entry['placement_id'],$rate['tenant_id'],$rate['id'],$rateHash,timeApprovedEntryFactsHash($entry),$rateJson]);
+};
+$archiveComparisonEntry(71);
 $wire['bill']['document']['line_items'][0]['service_start']='2026-10-05';
 $wire['bill']['document']['line_items'][0]['service_end']='2026-10-18';
 $wire['bill']['document']['line_items'][0]['amount']='520.00';
@@ -41,16 +54,18 @@ $check($comparisonRead('2026-10-05','2026-10-18',$periodLink['link']['id'])['fin
 $check($fails(fn()=>staffingReconciliationRead($pdo,2,$instance,['people'=>1,'placements'=>1,'time'=>1],'PL-1','2026-10-05','2026-10-18')),'foreign financial tenant cannot borrow comparison evidence');
 $check($fails(fn()=>staffingReconciliationRead($pdo,1,$instance,['people'=>2,'placements'=>1,'time'=>1],'PL-1','2026-10-05','2026-10-18')),'unauthorized person directory cannot resolve the comparison target');
 $check($fails(fn()=>staffingReconciliationRead($pdo,1,'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',$reconciliationOwners,'PL-1','2026-10-05','2026-10-18')),'foreign installation cannot read encrypted association evidence');
-$pdo->exec("UPDATE placement_rates SET currency='EUR' WHERE id=7");
+$pdo->exec("UPDATE placement_rates SET currency='EUR',pay_rate=200,bill_rate=300 WHERE id=7");
 $differentCurrency=$comparisonRead()['financial_lines'][0]['comparison'];
-$check($differentCurrency['numeric_difference']==='0.00'&&$differentCurrency['monetary_difference']===null&&$differentCurrency['currency_comparison']==='different','equal amounts in changed currency remain a reconciliation exception');
-$pdo->exec("UPDATE placement_rates SET currency='USD' WHERE id=7");
+$check($differentCurrency['numeric_difference']==='0.00'&&$differentCurrency['monetary_difference']==='0.00'&&$differentCurrency['currency_comparison']==='same','current placement currency and price changes cannot alter the original approved comparison');
+$pdo->exec("UPDATE placement_rates SET currency='USD',pay_rate=65,bill_rate=98 WHERE id=7");
 $pdo->exec("UPDATE time_entries SET hour_type='overtime' WHERE id=71");
 $classificationConflict=$comparisonRead();
-$check($classificationConflict['time']['pay_amount']===null&&$classificationConflict['financial_lines'][0]['comparison']['numeric_difference']===null,'native category disagreement cannot produce a misleading financial match');
+$check($classificationConflict['time']['pay_amount']===null&&$classificationConflict['financial_lines'][0]['comparison']['numeric_difference']===null
+    &&$classificationConflict['time']['entries'][0]['rate_evidence']==='unavailable','changed approved entry facts cannot produce a misleading financial match');
 $pdo->exec("UPDATE time_entries SET category='vacation',hour_type='pto',billable=0 WHERE id=71");
-$check($comparisonRead()['time']['pay_amount']==='520.00','canonical native paid leave retains its frozen pay amount');
+$check($comparisonRead()['time']['pay_amount']===null,'changing an approved earning category requires new approval evidence');
 $pdo->exec("UPDATE time_entries SET category='regular_billable',hour_type='regular',billable=1 WHERE id=71");
+require __DIR__.'/staffing_reconciliation_approval_checks.php';
 $pdo->exec('UPDATE core_record_numbers SET canonical_record_id=3 WHERE entity_type="placement" AND record_id=1');
 $check($fails($comparisonRead),'merged placement cannot redirect a saved line to another identity');
 $pdo->exec('UPDATE core_record_numbers SET canonical_record_id=1 WHERE entity_type="placement" AND record_id=1');
@@ -109,7 +124,7 @@ $check($fingerprint()===$protectedBefore,'combined payroll and financial compari
 $payrollWire['currency']=null;$payrollWire['unavailable_fields']['currency']='missing';$savePayrollCapture($payrollWire);
 $unknownPayroll=$combinedRead()['payroll']['lines'][0]['comparison'];
 $check($unknownPayroll['numeric_difference']==='-420.00'&&$unknownPayroll['monetary_difference']===null,'historical payroll currency absence remains explicit despite numeric comparison');
-$pdo->exec("INSERT INTO time_entries VALUES(74,1,1,3,'2026-10-05',8,'regular_billable','regular','approved','2026-10-19',7,NULL,7,1,1,'quanta','quanta','other-placement')");
+$pdo->exec("INSERT INTO time_entries(id,tenant_id,person_id,placement_id,work_date,hours,category,hour_type,status,approved_at,approved_by_user_id,superseded_by_id,rate_snapshot_id,payable,billable,source,source_system,external_id) VALUES(74,1,1,3,'2026-10-05',8,'regular_billable','regular','approved','2026-10-19',7,NULL,7,1,1,'quanta','quanta','other-placement')");
 $splitPayroll=$combinedRead()['payroll'];
 $check($splitPayroll['other_placement_entries']===1&&$splitPayroll['lines'][0]['comparison']['numeric_difference']===null,'person payroll is not assigned wholly to one of several placements');
 $operatingContext['organization']['id']='other-organization';

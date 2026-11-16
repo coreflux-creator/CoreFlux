@@ -5,6 +5,25 @@ require_once __DIR__.'/staffing_reconciliation_contract.php';
 require_once __DIR__.'/purepay_financial_line_links.php';
 require_once __DIR__.'/purepay_observations.php';
 require_once __DIR__.'/staffing_financial_evidence.php';
+require_once __DIR__.'/../../modules/time/lib/approval_economics.php';
+
+/** Keep unavailable historical evidence visible, without substituting current placement prices. */
+function staffingReconciliationApprovedRates(PDO $pdo,array $entries,int $tenant,int $placementOwner): array
+{
+    $rates=[];
+    foreach($entries as$entry){
+        if(!staffingReconciliationEntryApproved($entry))continue;
+        $id=(int)$entry['id'];
+        if($id<=0||isset($rates[$id]))throw new RuntimeException('The selected time identities are ambiguous. Review the source records.',409);
+        try{
+            $rates[$id]=['rate'=>timeReadApprovedRate($pdo,$entry,$tenant,false,$placementOwner),'reason'=>null];
+        }catch(RuntimeException $e){
+            if($e->getCode()!==409)throw $e;
+            $rates[$id]=['rate'=>null,'reason'=>$e->getMessage()];
+        }
+    }
+    return $rates;
+}
 
 function staffingReconciliationRead(PDO $pdo,int $tenant,string $instance,array $owners,string $number,string $start,string $end,?string $runId=null,?int $before=null): array
 {
@@ -25,12 +44,7 @@ function staffingReconciliationRead(PDO $pdo,int $tenant,string $instance,array 
         $q->execute([$owners['time'],$target['person_id'],$start,$end]);$personEntries=$q->fetchAll(PDO::FETCH_ASSOC);
         if(count($personEntries)>1000)throw new RuntimeException('Choose a shorter period to compare the complete time detail.');
         $entries=array_values(array_filter($personEntries,static fn($e)=>(int)$e['placement_id']===$target['placement_id']));
-        $rateIds=array_values(array_unique(array_filter(array_column($entries,'rate_snapshot_id'))));$rates=[];
-        if($rateIds){
-            $q=$pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND placement_id=? AND id IN ('.implode(',',array_fill(0,count($rateIds),'?')).')');
-            $q->execute([$owners['placements'],$target['placement_id'],...$rateIds]);
-            foreach($q->fetchAll(PDO::FETCH_ASSOC)as$r)$rates[(int)$r['id']]=$r;
-        }
+        $rates=staffingReconciliationApprovedRates($pdo,$entries,$owners['time'],$owners['placements']);
         $time=staffingReconciliationTime($entries,$rates,$period);
         $workbookReady=(int)$pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('staffing_financial_evidence','staffing_workbook_sources')")->fetchColumn()===2;
         $otherEntries=count(array_filter($personEntries,static fn($e)=>(int)$e['placement_id']!==$target['placement_id']&&empty($e['superseded_by_id'])));

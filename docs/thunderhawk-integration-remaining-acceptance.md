@@ -2,7 +2,15 @@
 
 This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
 
-## November 14 current checkpoint — dated compensation is atomic and payroll-inclusive
+## November 16 priority — people/placements and financial reconciliation first
+
+The user prioritized milestone 1 (JobDiva → Core → Quanta people and placements) and milestone 3 (held payroll results and accounting reconciliation), with new time-submission work deferred until afterward. The full integration objective remains intact. Continue from existing approved time; do not recreate the historical payroll period or execute payments, payroll or postings.
+
+Fresh read-only inspection at 15:34:25 UTC verified all 491 installed runtime pins with zero differences. The pilot retains one JobDiva assignment/person/placement/job mapping, three company mappings and one contact mapping. Existing placements PL-864/P-358 and PL-902/P-387 remain active. PL-864 has twelve current approved entries totaling 89 hours across its dates, with no archived approval rates; PL-902 has two totaling 3.25 hours and one archived rate. These all-date counts are not a new period reconciliation or proof of original client approval. No provider request or record change occurred.
+
+Financial-review source inspection found a correctness gap: its report priced time using today's placement-rate row rather than the entry-specific approval evidence. A candidate now uses the same verified historical-rate reader as native accounting, in the report's read-only transaction. Missing, altered or foreign approval evidence preserves hours and exposes unavailable amounts. Different approvals of the same rate ID retain their distinct prices. This candidate still requires complete CI, isolated installation and hosted acceptance; it is not yet installed. The remaining placement/receiving-contract and financial allocation requirements below are unchanged.
+
+## November 14 installed checkpoint — dated compensation is atomic and payroll-inclusive
 
 Application and installer `c8efdda2` passed all eleven [CI jobs](https://github.com/coreflux-creator/CoreFlux/actions/runs/43605859055): 102 compensation database checks, 967 independent-connection checks and 997 native-session HTTP checks. The native endpoint now enforces People read/write permissions, resolves one current employee directory, requires the displayed history revision, and saves predecessor closure, the new rate and mandatory audits atomically. Exact retries return their original result; changed retries, stale history, invalid values and overlapping legacy rates refuse without rewriting history. Native payroll includes the prior rate's final day. [Behavior and limits](thunderhawk-employment-compensation.md).
 

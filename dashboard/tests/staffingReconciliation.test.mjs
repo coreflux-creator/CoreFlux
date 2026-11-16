@@ -64,3 +64,13 @@ test('failed read does not retain stale financial evidence or retry automaticall
   let reads = 0; const f = await fixture(async () => { if (++reads > 1) throw new Error('Unavailable'); return report; });
   try { await f.ready(); await f.click('Compare saved evidence'); await f.click('Compare saved evidence'); assert.ok(!text(f.tree.root).includes('Synthetic worker')); assert.ok(text(f.tree.root).includes('Unavailable')); assert.equal(f.calls.length, 2); } finally { f.close(); }
 });
+
+test('missing historical rate evidence leaves amounts unknown and gives the operator its reason', async () => {
+  const f = await fixture(async () => ({ ...report, time: { ...report.time, pay_amount: null, bill_amount: null,
+    entries: [{ id: 71, date: '2026-10-05', hours: '8.00', approved: true, status: 'approved', source: 'quanta', rate_snapshot_id: 7,
+      issues: ['approved_rate_missing'], rate_evidence: 'unavailable', rate_evidence_detail: 'The archived approval rate is missing. Restore its original evidence before accounting.' }] } }));
+  try { await f.ready(); await f.click('Compare saved evidence'); const visible = text(f.tree.root);
+    assert.ok(visible.includes('8.00 approved hours')); assert.ok(visible.includes('Pay at approved rates: Unknown'));
+    assert.ok(visible.includes('The archived approval rate is missing.')); assert.ok(visible.includes('Missing or changed original evidence leaves the amount unknown.'));
+  } finally { f.close(); }
+});

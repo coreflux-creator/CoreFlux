@@ -3,9 +3,9 @@
 declare(strict_types=1);
 require_once __DIR__.'/../../staffing/lib/dimension_snapshot.php';
 
-function timeApprovalEconomicsRequireSchema(): void
+function timeApprovalEconomicsRequireSchema(?PDO $pdo=null): void
 {
-    $q=getDB()->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('time_approval_rates','time_accounting_handoffs')");
+    $q=($pdo??getDB())->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('time_approval_rates','time_accounting_handoffs')");
     if ((int)$q->fetchColumn()!==2) throw new RuntimeException('Time approval needs a system update. Contact your administrator.',503);
 }
 
@@ -41,6 +41,12 @@ function timeArchiveApprovedRate(array $entry,array $snapshot): void
 /** An entry is scoped to its original workspace; a rate ID alone is insufficient. */
 function timeApprovedRate(array $entry,int $tenant): array
 {
+    return timeReadApprovedRate(getDB(),$entry,$tenant,true);
+}
+
+/** Use the caller's consistent read without locks; writers retain their existing row locks. */
+function timeReadApprovedRate(PDO $pdo,array $entry,int $tenant,bool $lock=false,?int $legacyRateOwner=null): array
+{
     if ($tenant<=0 || (int)($entry['tenant_id']??0)!==$tenant || !in_array($entry['status']??'', ['approved','locked','billing_ready','payroll_ready'],true)) {
         throw new RuntimeException('Approved time is unavailable in this workspace.',409);
     }
@@ -57,8 +63,9 @@ function timeApprovedRate(array $entry,int $tenant): array
         || !preg_match('/^[a-f0-9]{64}$/D',(string)($snapshot['source_rate_hash']??''))) {
         throw new RuntimeException('This older approval has no verified rate values. Review its original evidence before accounting.',409);
     }
-    timeApprovalEconomicsRequireSchema();
-    $q=getDB()->prepare('SELECT * FROM time_approval_rates WHERE tenant_id=? AND time_entry_id=?'.(getDB()->inTransaction()?' FOR UPDATE':''));
+    timeApprovalEconomicsRequireSchema($pdo);
+    $suffix=$lock&&$pdo->inTransaction()?' FOR UPDATE':'';
+    $q=$pdo->prepare('SELECT * FROM time_approval_rates WHERE tenant_id=? AND time_entry_id=?'.$suffix);
     $q->execute([$tenant,$entry['id']]);$archive=$q->fetch(PDO::FETCH_ASSOC);
     if ($archive) {
         $rate=json_decode($archive['rate_json'],true);
@@ -74,9 +81,9 @@ function timeApprovedRate(array $entry,int $tenant): array
         if (($snapshot['approved_rate_version']??null)!==null) throw new RuntimeException('The archived approval rate is missing. Restore its original evidence before accounting.',409);
         // Older hashed approvals can be read only while the exact original row
         // still exists. Never manufacture a historical rate from today's values.
-        require_once __DIR__.'/time.php';
-        $q=getDB()->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND id=? AND placement_id=?'.(getDB()->inTransaction()?' FOR UPDATE':''));
-        $q->execute([timePlacementGraphTenantId($tenant),$entry['rate_snapshot_id'],$entry['placement_id']]);$rate=$q->fetch(PDO::FETCH_ASSOC);
+        if($legacyRateOwner===null){require_once __DIR__.'/time.php';$legacyRateOwner=timePlacementGraphTenantId($tenant);}
+        $q=$pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id=? AND id=? AND placement_id=?'.$suffix);
+        $q->execute([$legacyRateOwner,$entry['rate_snapshot_id'],$entry['placement_id']]);$rate=$q->fetch(PDO::FETCH_ASSOC);
         if (!$rate || !hash_equals($snapshot['source_rate_hash'],hash('sha256',staffingDimensionSnapshotCanonicalJson($rate)))) {
             throw new RuntimeException('The original approved rate is unavailable. Review historical evidence before accounting.',409);
         }

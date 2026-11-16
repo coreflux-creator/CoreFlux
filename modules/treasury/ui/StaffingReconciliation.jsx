@@ -27,11 +27,12 @@ export function StaffingReconciliationView({ report }) {
     {evidenceChanged && <p role="status">Workbook reviews changed. Run “Compare saved evidence” again to refresh this view.</p>}
     <h5>Approved Core time</h5>
     <p>{show(report.time.approved_hours)} approved hours · {show(report.time.payable_hours)} payable · {show(report.time.billable_hours)} billable.</p>
-    <p>Frozen-rate pay: {show(report.time.pay_amount)}. Frozen-rate bill amount: {show(report.time.bill_amount)}. Currency: {show(report.time.currency)}.</p>
+    <p>Pay at approved rates: {show(report.time.pay_amount)}. Bill amount at approved rates: {show(report.time.bill_amount)}. Currency: {show(report.time.currency)}.</p>
+    <p>Each amount uses the rate verified against that time entry’s approval. Missing or changed original evidence leaves the amount unknown.</p>
     <p>These amounts cover approved hourly time before tax and one-time items. A Core approval does not prove an original client approval.</p>
     {!entries.length && <p>No Core time entries in this placement and period.</p>}
     {!!entries.length && <div style={{ overflowX: 'auto' }}><table className="data-table"><thead><tr><th>Date</th><th>Core entry</th><th>Hours</th><th>Review</th><th>Source</th><th>Rate snapshot</th><th>Needs attention</th></tr></thead>
-      <tbody>{entries.slice(start, start + 50).map(entry => <tr key={entry.id}><td>{entry.date}</td><td>{entry.id}</td><td>{show(entry.hours)}</td><td>{entry.approved ? 'Approved' : label(entry.status)}</td><td>{show(entry.source)}</td><td>{show(entry.rate_snapshot_id)}</td><td>{entry.issues.length ? entry.issues.map(label).join(', ') : '—'}</td></tr>)}</tbody></table></div>}
+      <tbody>{entries.slice(start, start + 50).map(entry => <tr key={entry.id}><td>{entry.date}</td><td>{entry.id}</td><td>{show(entry.hours)}</td><td>{entry.approved ? 'Approved' : label(entry.status)}</td><td>{show(entry.source)}</td><td>{show(entry.rate_snapshot_id)}</td><td>{entry.issues.length ? entry.issues.map(label).join(', ') : '—'}{entry.rate_evidence_detail && <p>{entry.rate_evidence_detail}</p>}</td></tr>)}</tbody></table></div>}
     {entries.length > 50 && <p><button className="btn" disabled={!page} onClick={() => setPage(p => p - 1)}>Previous time</button>{' '}<button className="btn" disabled={start + 50 >= entries.length} onClick={() => setPage(p => p + 1)}>Next time</button></p>}
     <h5>Reviewed invoice and bill lines</h5>
     {!report.financial_lines.length && <p>No reviewed placement associations on this page. This does not establish that the provider has no documents.</p>}
