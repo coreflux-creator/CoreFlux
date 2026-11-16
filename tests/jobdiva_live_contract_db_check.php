@@ -2,6 +2,7 @@
 /** Exact live-contract apply against the disposable canonical database. */
 declare(strict_types=1);
 if(PHP_SAPI!=='cli'||getenv('COREFLUX_ENV')!=='coreaccounting'||getenv('COREFLUX_STANDALONE_DATABASE')!=='coreaccounting_ci'||!in_array('--confirm-disposable-fixture',$argv,true))exit(2);
+putenv('COREFLUX_DATA_KEY='.base64_encode(random_bytes(32))); // This disposable process encrypts synthetic cached tokens only.
 require_once __DIR__.'/../core/jobdiva/live_contract_refresh.php';
 $pdo=getDB();if($pdo->query('SELECT DATABASE()')->fetchColumn()!=='coreaccounting_ci')exit(2);
 $owner=(int)$pdo->query('SELECT MIN(id) FROM tenants')->fetchColumn();$workspace=990707;$checks=0;$trigger='fixture_live_contract_audit';
