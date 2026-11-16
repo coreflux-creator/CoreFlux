@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-11-16T16:55:49+00:00",
+  "recorded_at": "2026-11-16T17:00:17+00:00",
   "scope": "isolated_pilot",
   "status": "selected_priority_flows_verified",
   "application_source_commit": "382df6e8bfb3a6cfad52a28aa2daacbae5c3cae6",
@@ -290,6 +290,73 @@
     "browser_verified": false,
     "completed_at": "2026-11-16T16:41:30+00:00"
   },
+  "invoice_entity_completion": {
+    "started_at": "2026-11-16T16:59:34+00:00",
+    "scope": "isolated_pilot",
+    "phase": "finished",
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/login.php",
+        "status": 302,
+        "tenant": 2002
+      },
+      {
+        "method": "GET",
+        "path": "/modules/billing/api/invoices.php",
+        "status": 403,
+        "tenant": 2
+      },
+      {
+        "method": "PATCH",
+        "path": "/modules/billing/api/invoices.php?id=699",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "method": "GET",
+        "path": "/modules/billing/api/invoices.php?id=699",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "method": "GET",
+        "path": "/logout.php",
+        "status": 302,
+        "tenant": 2002
+      }
+    ],
+    "passed": true,
+    "new_time_submissions": 0,
+    "financial_execution": false,
+    "actors": [
+      {
+        "user_id": 133,
+        "membership_id": 119
+      }
+    ],
+    "invoice": {
+      "id": 699,
+      "number": "INV-2026-0001",
+      "entity_id": 127,
+      "status": "draft",
+      "currency": "USD",
+      "total": "125.00",
+      "journal_entry_id": null
+    },
+    "source_entity_validated": true,
+    "invoice_changed_fields": [
+      "entity_id",
+      "updated_at"
+    ],
+    "invoice_lines_and_source_time_preserved": true,
+    "signed_in_native_readback_verified": true,
+    "actor_retired": true,
+    "protected_business_history_preserved": true,
+    "production_changed": false,
+    "arabella_changed": false,
+    "completed_at": "2026-11-16T16:59:38+00:00"
+  },
   "accounting_setup": {
     "checked_at": "2026-11-16T16:16:33+00:00",
     "scope": "isolated_pilot",
@@ -393,7 +460,7 @@
     "production_changed": false
   },
   "final_readback": {
-    "checked_at": "2026-11-16T16:52:54+00:00",
+    "checked_at": "2026-11-16T17:00:17+00:00",
     "passed": true,
     "scope": "isolated_pilot",
     "placement_flow": {
@@ -450,7 +517,7 @@
         "currency": "USD",
         "total": "125.00",
         "journal_entry_id": null,
-        "entity_id": null
+        "entity_id": 127
       },
       "invoice_line": {
         "source_type": "time_entry",
@@ -508,6 +575,33 @@
       }
     },
     "all_core_tables_unchanged": 382,
+    "temporary_users_retired": [
+      {
+        "id": 130,
+        "is_active": 0,
+        "no_password": 1,
+        "no_hash": 1
+      },
+      {
+        "id": 131,
+        "is_active": 0,
+        "no_password": 1,
+        "no_hash": 1
+      },
+      {
+        "id": 132,
+        "is_active": 0,
+        "no_password": 1,
+        "no_hash": 1
+      },
+      {
+        "id": 133,
+        "is_active": 0,
+        "no_password": 1,
+        "no_hash": 1
+      }
+    ],
+    "temporary_module_grants": 0,
     "new_time_submissions": 0,
     "financial_execution": false,
     "production_changed": false,
@@ -526,7 +620,7 @@
   },
   "limits": [
     "Selected controlled pilot flows; production rollout and automated bulk refresh remain pending.",
-    "Invoice 699 remains a draft with no legal entity selected; do not treat it as ready to post.",
+    "Invoice 699 has its source-backed issuing entity and remains an unsent, unapproved draft.",
     "Accounting handoff 4 is validated but pending, with no dispatch or posted journal.",
     "Synthetic held payroll does not establish tax-calculation acceptance.",
     "PL-864 account-manager name and workers compensation class remain unresolved.",
@@ -544,8 +638,9 @@
     "selected-pure-native-revision-20261116-2.json": "a9a78e67640810ffec50e79d9fdde6af909200f4b4cd1424de3fd09ae5cfde80",
     "selected-financial-draft-verification-20261116.json": "ba0ffcea0d1c5f46e7c21dbf473e0ac07e7d500960b00e92f3a76ed4f027982a",
     "selected-invoice-visibility-20261116.json": "702765083d0361cf440e77c88bf7964ff31cbadcb661e89259b0e04bb5dac514",
+    "selected-invoice-entity-20261116.json": "29eb7af61b19ee1918090fcbd25c4f4387ce8dfcb48ee2ecd016575a173f3e3f",
     "staffing-accounting-setup-installed-20261116.json": "2101ba4f36f8acba0035a4e3ec61f5f566f6219da246d3e8b7daddf68ff56c91",
-    "priority-flows-final-20261116.json": "8ca014483c730a62578060e9e6319f4e4525486caf0a9967e7c5cd8cf5ddacc3",
+    "priority-flows-final-20261116-2.json": "33df06949e931cc036f97cd27dd64f9247f35db1bbcbea7e9d62ea2d4f044e43",
     "pilot-flow-operator-retire-20261116.json": "f9b73147341bd25e9269199d8110ec5d778ef223981bf23892e8eddd0623ff76"
   }
 }
