@@ -13,6 +13,8 @@ if (($argv[1] ?? '') === '--owner') {
     $guard = static function (string $phase) use ($action, $base, &$calls, &$phases): bool {
         $phases[$phase] = ($phases[$phase] ?? 0) + 1;
         if ($action === 'refuse-guard') return false;
+        if ($action === 'refuse-backup-completion' && $phase === 'file-backup-complete') return false;
+        if ($action === 'refuse-added-backup-guard' && $phase === 'file-backup' && ++$calls === 5) return false;
         if ($action === 'refuse-tree-guard' && $phase === 'directory-rename') return false;
         if ($action === 'tamper-staged-tree' && $phase === 'directory-rename') {
             $trees = glob($base . '/private-1004/pending-tree-*');
@@ -33,7 +35,7 @@ if (($argv[1] ?? '') === '--owner') {
     try {
         $adapter = new FullCoreReleaseFiles($base . '/public_html', $base . '/package-' . $uid, $private,
             $bytes, hash('sha256', $bytes), $guard);
-        if ($action === 'prepare' || $action === 'refuse-guard') $adapter->prepare();
+        if (in_array($action, ['prepare','refuse-guard','refuse-backup-completion','refuse-added-backup-guard'], true)) $adapter->prepare();
         elseif (in_array($action, ['apply', 'crash-rename', 'crash-directory', 'crash-tree-installed', 'refuse-tree-guard',
             'tamper-staged-tree', 'concurrent-tree-target'], true)) $adapter->apply();
         elseif (in_array($action, ['recover', 'crash-tree-recovery'], true)) $adapter->recover();
@@ -141,7 +143,10 @@ foreach (['crash-rename' => 73, 'crash-directory' => 74, 'crash-tree-installed' 
 }
 
 [$base, $plans] = $setup('bulk-new-tree', 1024); $protected = $unchanged($base);
-$assert($run($base,1004,'prepare')[0] === 0,'large new tree retains all reviewed per-file preparation checks');
+$prepared = $run($base,1004,'prepare'); $preparationGuards = json_decode($prepared[1],true)['guards'] ?? [];
+$assert($prepared[0] === 0 && ($preparationGuards['file-backup'] ?? 0) > 16
+    && ($preparationGuards['file-backup'] ?? 1000) < 32 && ($preparationGuards['file-backup-complete'] ?? 0) === 1,
+    'large absent tree keeps bounded fresh observations and a final hold without per-dependency remote calls');
 $applied = $run($base,1004,'apply'); $counts = json_decode($applied[1],true)['guards'] ?? [];
 $assert($applied[0] === 0 && ($counts['directory-rename'] ?? 0) === 1 && ($counts['file-rename'] ?? 0) === 2,
     '1026 new files become visible at one fresh guarded tree rename; original files retain individual guards');
@@ -153,6 +158,18 @@ $assert($run($base,1004,'recover')[0] === 0 && $run($base,1004,'verify-original'
     'fresh recovery resumes after tree removal without replay or deleting its private evidence');
 $assert(is_file($base.'/private-1004/recovered-tree-'.hash('sha256','new-app').'/vendor/dependency-1023/code.php'),
     'removed dependency bytes are retained privately instead of recursive public deletion');
+
+foreach (['refuse-added-backup-guard','refuse-backup-completion'] as $action) {
+    [$base] = $setup($action,128);
+    $assert($run($base,1004,$action)[0] === 2 && !is_file($base.'/private-1004/prepared.json')
+        && $run($base,1004,'verify-original')[0] === 0,
+        'lost hold during or after read-only batches refuses preparation without changing originals');
+}
+[$base] = $setup('late-added-candidate-drift',128);
+file_put_contents($base.'/package-1004/new-app/vendor/dependency-127/code.php','changed absent-file candidate');
+$assert($run($base,1004,'prepare')[0] === 2 && !is_file($base.'/private-1004/prepared.json')
+    && $run($base,1004,'verify-original')[0] === 0,
+    'every added candidate is checked even within a read-only batch');
 
 [$base] = $setup('tree-guard-loss');
 $assert($run($base,1004,'prepare')[0] === 0 && $run($base,1004,'refuse-tree-guard')[0] === 2

@@ -378,8 +378,15 @@ final class FullCoreReleaseFiles
         foreach ($this->plan['directories'] as $relative => $entry) {
             if (!self::same(self::metadata($this->path($this->root, $relative), false), $entry['before'])) throw new RuntimeException('Directory preimage differs.');
         }
+        $absentChecks = 0;
         foreach ($this->plan['files'] as $relative => $entry) {
-            $this->held('file-backup'); $target = $this->path($this->root, $relative);
+            // Existing bytes retain their individual hold check. Added files
+            // have no original bytes to capture and do not mutate the webroot;
+            // bound those read-only checks in small batches instead of paying
+            // for a remote writer inventory for every dependency file.
+            if ($entry['before'] !== null || $absentChecks % 64 === 0) $this->held('file-backup');
+            if ($entry['before'] === null) $absentChecks++; else $absentChecks = 0;
+            $target = $this->path($this->root, $relative);
             if (!self::same(self::metadata($target, true), $entry['before'])) throw new RuntimeException('File preimage differs.');
             $this->candidate($relative, $entry['after']);
             if ($entry['before'] === null) continue;
@@ -388,6 +395,9 @@ final class FullCoreReleaseFiles
             self::digest($this->privateRead($backup), $entry['before']['sha256']);
             if (!self::same(self::metadata($target, true), $entry['before'])) throw new RuntimeException('File changed during backup.');
         }
+        // A lost hold cannot produce a completed preparation receipt. Apply
+        // still rechecks every preimage and every actual mutation keeps its guard.
+        $this->held('file-backup-complete');
         $this->mark('prepared', true);
         return $this->marker('prepared') + ['files' => count($this->plan['files'])];
     }
