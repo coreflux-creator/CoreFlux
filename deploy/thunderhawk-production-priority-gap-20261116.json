@@ -1,0 +1,65 @@
+{
+  "checked_at": "2026-11-16T17:12:10+00:00",
+  "scope": "production_read_only_metadata",
+  "table_count": 387,
+  "required_tables": {
+    "core_record_numbers": false,
+    "integration_delivery_subjects": false,
+    "integration_deliveries": false,
+    "quanta_workspace_bindings": false,
+    "payroll_source_authorities": false,
+    "payroll_source_claims": false,
+    "payroll_provider_results": false,
+    "staffing_onboarding_cases": false,
+    "time_approval_rates": false,
+    "time_accounting_handoffs": false
+  },
+  "selected_runtime_sha256": {
+    "core/jobdiva/assignment_identity.php": "090748f8504155ccb2f157a3d21018114b17bc0156fad19971cb1fc000292685",
+    "core/jobdiva/live_contract_refresh.php": null,
+    "core/jobdiva/sync.php": "cf7ffb8d2acd765169bc485a002002d3897871e91b10aa1cbc1228c7fc3e13cb",
+    "core/quanta/metadata_delivery.php": null,
+    "core/quanta/onboarding_delivery.php": null,
+    "core/integrations/purepay_assignment_inputs.php": null,
+    "core/integrations/purepay_payroll_results.php": null,
+    "modules/billing/api/invoices.php": "f638ebcf838caf420f4b31a87ffe52cb155cb4401a9175337f6875f4ff0cacbb",
+    "modules/time/lib/accounting_handoff.php": null
+  },
+  "placement_columns": {
+    "worksite_city": false,
+    "entity_id": false,
+    "branch": true,
+    "wc_class": false,
+    "recruiter_name": true,
+    "account_manager_name": true
+  },
+  "jobdiva_connections": [
+    {
+      "id": 1,
+      "tenant_id": 2,
+      "status": "degraded",
+      "last_sync_at": "2026-09-19 17:45:32"
+    }
+  ],
+  "cli_flags": {
+    "COREFLUX_QUANTA_CORE_PUBLISH_ENABLED": null,
+    "COREFLUX_PUREPAY_CORE_PUBLISH_ENABLED": null,
+    "COREFLUX_PUREPAY_PAYROLL_INPUTS_ENABLED": null
+  },
+  "credential_values_read": false,
+  "provider_requests": 0,
+  "production_changed": false,
+  "release_readiness_established": false,
+  "compared_candidate": "382df6e8bfb3a6cfad52a28aa2daacbae5c3cae6",
+  "selected_runtime_matches_candidate": {
+    "core/jobdiva/assignment_identity.php": false,
+    "core/jobdiva/live_contract_refresh.php": false,
+    "core/jobdiva/sync.php": false,
+    "core/quanta/metadata_delivery.php": false,
+    "core/quanta/onboarding_delivery.php": false,
+    "core/integrations/purepay_assignment_inputs.php": false,
+    "core/integrations/purepay_payroll_results.php": false,
+    "modules/billing/api/invoices.php": false,
+    "modules/time/lib/accounting_handoff.php": false
+  }
+}

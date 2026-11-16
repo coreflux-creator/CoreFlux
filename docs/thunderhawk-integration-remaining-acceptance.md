@@ -1,6 +1,14 @@
 # Thunderhawk pilot acceptance checkpoint
 
-This checkpoint separates the requested integration outcome from optional future work. The authorized destination is the isolated pilot/staging environment. Production cutover, real payroll execution, payments and financial postings are not prerequisites to completing this authorized pilot and are not authorized by it. Arabella remains separate.
+This checkpoint distinguishes pilot validation from the user's intended live operational integration. Pilot success is an intermediate result; it does not complete milestones 1 and 3 in Thunderhawk's production workspace. Arabella remains separate. Test evidence does not itself authorize real payroll, payments, financial postings or a production cutover.
+
+## November 16 user correction — live milestones remain open
+
+The user correctly pointed out that the working flows are limited to the isolated pilot. **Milestones 1 and 3 remain open for live operational use.** Production release and Thunderhawk live setup take priority before returning to new time submissions. Completion means the ordinary live workspace can refresh selected JobDiva people/placements, exchange reviewed updates with live Quanta/PurePayroll, and reconcile existing approved hours to held payroll results, billing drafts and accounting review. Pilot record IDs and synthetic financial records must not be copied into the live company as operational history.
+
+A fresh read-only production inspection at **17:12:10 UTC** confirms a material release gap: all nine inspected workflow files differ from the verified pilot candidate or are absent, and all ten inspected integration/approval tables are absent, including shared record numbers, delivery receipts, workspace bindings, payroll source/results, onboarding, frozen approval rates and accounting handoffs. The live placement schema also lacks several required columns. The saved JobDiva connection is marked degraded with its last recorded sync in September; this metadata read did not make a fresh provider authentication request. These observations are not a complete migration plan or proof of current provider readiness. [Production comparison](../deploy/thunderhawk-production-priority-gap-20261116.json).
+
+Next prepare the current combined Core release against production's actual schema and source, rehearse conversion and recovery, verify the corresponding live provider contracts/settings, and prepare the concrete live activation for review. The older release and Cloudways security-review checkpoints need refreshing; they must not be treated as current clearance. No production change was made by this inspection. The verified pilot paths below remain useful acceptance evidence, not a live completion claim.
 
 ## November 16 selected priority flows — installed and verified
 
