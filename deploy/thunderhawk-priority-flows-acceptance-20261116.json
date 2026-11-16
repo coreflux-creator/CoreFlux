@@ -1,0 +1,551 @@
+{
+  "recorded_at": "2026-11-16T16:55:49+00:00",
+  "scope": "isolated_pilot",
+  "status": "selected_priority_flows_verified",
+  "application_source_commit": "382df6e8bfb3a6cfad52a28aa2daacbae5c3cae6",
+  "application_ci": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43908570735",
+  "ci_jobs_passed": 11,
+  "installations": [
+    {
+      "checked_at": "2026-11-16T16:26:59+00:00",
+      "passed": true,
+      "operation": "44f5b238212426abf8ec38efa59e1ab0",
+      "candidate": "062e5fbbf13bd6496d3f12223b588c79c74bc567",
+      "installed_files_verified": 4,
+      "dependency_pins_verified": 489,
+      "schema": {
+        "tables": 382,
+        "business_records_unchanged": true,
+        "migrations_applied": 0
+      },
+      "current_tables": 382,
+      "current_rows": 36291,
+      "configuration_preserved": true,
+      "maintenance_restored": true,
+      "scheduler_preserved": true,
+      "diagnostic_absent": true,
+      "database_backup_retained": true,
+      "fresh_runtime_loaded": true,
+      "production_changed": false,
+      "hosted_verification_writes": 0
+    },
+    {
+      "checked_at": "2026-11-16T16:43:29+00:00",
+      "passed": true,
+      "operation": "a19a1794dd29aaaea5f0a751ccebc971",
+      "candidate": "382df6e8bfb3a6cfad52a28aa2daacbae5c3cae6",
+      "installed_files_verified": 4,
+      "dependency_pins_verified": 489,
+      "schema": {
+        "tables": 382,
+        "business_records_unchanged": true,
+        "migrations_applied": 0
+      },
+      "current_tables": 382,
+      "current_rows": 36930,
+      "configuration_preserved": true,
+      "maintenance_restored": true,
+      "scheduler_preserved": true,
+      "diagnostic_absent": true,
+      "database_backup_retained": true,
+      "fresh_runtime_loaded": true,
+      "production_changed": false,
+      "hosted_verification_writes": 0
+    }
+  ],
+  "jobdiva_refresh": {
+    "checked_at": "2026-11-16T16:43:47+00:00",
+    "person": "P-358",
+    "placement": "PL-864",
+    "retained_mappings": [
+      {
+        "id": 3,
+        "internal_entity_type": "person",
+        "external_id": "18424007240614",
+        "internal_entity_id": 358,
+        "sync_status": "ok",
+        "last_seen_at": "2026-11-16 11:43:46"
+      },
+      {
+        "id": 4,
+        "internal_entity_type": "placement",
+        "external_id": "57862243",
+        "internal_entity_id": 864,
+        "sync_status": "ok",
+        "last_seen_at": "2026-11-16 11:43:46"
+      }
+    ],
+    "review_hash": "eb11e69506ae74584d045b59aff8457d05f1ae9ee95f2d00dd0cf3fd29b4e259",
+    "changed_placement_fields": [
+      "worksite_city",
+      "recruiter_name"
+    ],
+    "counts_preserved": {
+      "people": 75,
+      "placements": 73,
+      "placement_rates": 10
+    },
+    "other_placements_preserved": true,
+    "approved_time_and_financial_history_preserved": true,
+    "scheduled_refresh_enabled": false
+  },
+  "quanta_assignment": {
+    "delivery_id": 119,
+    "review_hash": "40a69062d58846bc20c3823f7d3cd33970da390d0ddd32114edc16eab3997c6a",
+    "assignment_version": 4,
+    "work_location": {
+      "city": "Hamilton",
+      "state": "NJ",
+      "country": "US"
+    },
+    "same_person_and_assignment": true,
+    "replay_unchanged": true,
+    "completed_at": "2026-11-16T16:44:09+00:00"
+  },
+  "quanta_onboarding": {
+    "delivery": {
+      "id": 120,
+      "provider": "quanta",
+      "entity_type": "placement",
+      "entity_tenant_id": 2002,
+      "entity_id": 864,
+      "operation": "onboarding.publish",
+      "review_hash": "05048fedea9a15978ab6d0842d1146b8ac08f4a884468323d6972cbba56d4b23",
+      "state": "delivered",
+      "remote_id": "cfo_b2fcc457b55a5365544597d55d8ead4bf9e7572cc89bd6cdd921ca7f45b5b9b6",
+      "error_code": null,
+      "created_at": "2026-11-16 11:47:47",
+      "expires_at": "2026-11-16 12:17:47",
+      "approved_at": "2026-11-16 11:47:49",
+      "attempted_at": "2026-11-16 11:47:49",
+      "finished_at": "2026-11-16 11:47:50",
+      "remote_receipt_id": "cfd_0fa8eebd55787063aa947544f4d14d79f213774f5c6b271d5a82aa4de9b53af9"
+    },
+    "version": 7,
+    "assignment_version": 4,
+    "core_version": 11,
+    "tasks_preserved": true,
+    "replay_unchanged": true
+  },
+  "purepayroll": {
+    "delivery": {
+      "id": 121,
+      "provider": "purepayroll",
+      "entity_type": "placement",
+      "entity_tenant_id": 2002,
+      "entity_id": 864,
+      "operation": "assignments.inputs",
+      "review_hash": "6e27e83a2d2d62cef62c9075389b08671b40e347f12eec4c1817b69877e9fcfe",
+      "state": "delivered",
+      "remote_id": "cpa_a533b11d8c8a2f50463b1ea7cdc4800550fa0be779c71c6014253b44f6700728",
+      "error_code": null,
+      "created_at": "2026-11-16 11:47:53",
+      "expires_at": "2026-11-16 12:17:53",
+      "approved_at": "2026-11-16 11:47:54",
+      "attempted_at": "2026-11-16 11:47:54",
+      "finished_at": "2026-11-16 11:47:54",
+      "remote_receipt_id": "cpa_a533b11d8c8a2f50463b1ea7cdc4800550fa0be779c71c6014253b44f6700728"
+    },
+    "packet_hash": "772621d9e488e32d64e504616fe927c747b26712dd886cf7ed63018954e0e8af",
+    "replay_unchanged": true,
+    "native_acceptance": {
+      "checked_at": "2026-11-16T16:51:13.643580+00:00",
+      "phase": "complete",
+      "passed": true,
+      "scope": "isolated_pilot",
+      "financial_execution": false,
+      "review_hash": "ff83a6b755895102df1410477fa04f3e29e4c275a40d52dab699749f38bf1233",
+      "assignment_id": "asg_core_329879a277eb3fb0398832357ad55998706add368dad8c75386e2058745ba2d6",
+      "input_id": "cpa_a533b11d8c8a2f50463b1ea7cdc4800550fa0be779c71c6014253b44f6700728",
+      "source_revision": "e1fb0fa0ae9055f50aa236c243f887f50f0a9bd4dfead9b0d66ebd33ff7899b3",
+      "assignment_status": "active",
+      "person": "P-358",
+      "placement": "PL-864",
+      "worksite_city": "Hamilton",
+      "pay_rate": "65.0000",
+      "bill_rate": "98.0000",
+      "native_readback_verified": true,
+      "native_session_retired": true,
+      "original_history_retained": true,
+      "other_documents_preserved": true,
+      "assignment_changed_fields": [
+        "source_revision",
+        "core_assignment"
+      ],
+      "added_collections": {
+        "login_events": 1,
+        "sessions": 1
+      },
+      "production_changed": false,
+      "completed_at": "2026-11-16T16:51:15.549327+00:00"
+    }
+  },
+  "financial_draft": {
+    "started_at": "2026-11-16T16:32:42+00:00",
+    "scope": "isolated_pilot",
+    "phase": "finished",
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/login.php",
+        "status": 302,
+        "tenant": 2002
+      },
+      {
+        "method": "GET",
+        "path": "/modules/billing/api/invoices.php",
+        "status": 403,
+        "tenant": 2
+      },
+      {
+        "method": "POST",
+        "path": "/modules/billing/api/invoices.php?action=from-time-entries",
+        "status": 422,
+        "tenant": 2002
+      },
+      {
+        "method": "GET",
+        "path": "/logout.php",
+        "status": 302,
+        "tenant": 2002
+      }
+    ],
+    "passed": true,
+    "new_time_submissions": 0,
+    "financial_execution": false,
+    "actors": [
+      {
+        "user_id": 131,
+        "membership_id": 117
+      }
+    ],
+    "invoice_id": 699,
+    "invoice": {
+      "id": 699,
+      "number": "INV-2026-0001",
+      "status": "draft",
+      "client_company_id": 1902,
+      "currency": "USD",
+      "total": "125.00",
+      "time_entry_id": 24,
+      "hours": "1.25",
+      "bill_rate": "100.00",
+      "journal_entry_id": null
+    },
+    "duplicate_billing_refused": true,
+    "source_change_fields": [],
+    "actor_retired": true,
+    "protected_business_history_preserved": true,
+    "existing_invoice_and_lines_unchanged": true,
+    "first_observation_guard_explanation": "updated_at is an automatic database timestamp; the original invoice creation added only its billing reservation and timestamp",
+    "production_changed": false,
+    "arabella_changed": false,
+    "completed_at": "2026-11-16T16:32:46+00:00"
+  },
+  "invoice_visibility": {
+    "started_at": "2026-11-16T16:41:27+00:00",
+    "scope": "isolated_pilot",
+    "phase": "finished",
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/login.php",
+        "status": 302,
+        "tenant": 2002
+      },
+      {
+        "method": "GET",
+        "path": "/modules/billing/api/invoices.php?status=draft",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "method": "GET",
+        "path": "/modules/billing/api/invoices.php?id=699",
+        "status": 200,
+        "tenant": 2002
+      },
+      {
+        "method": "GET",
+        "path": "/logout.php",
+        "status": 302,
+        "tenant": 2002
+      }
+    ],
+    "passed": true,
+    "new_time_submissions": 0,
+    "financial_execution": false,
+    "listed": true,
+    "invoice": {
+      "id": 699,
+      "number": "INV-2026-0001",
+      "status": "draft",
+      "currency": "USD",
+      "total": "125.00",
+      "client_company_id": 1902,
+      "entity_id": null
+    },
+    "time_entry_id": 24,
+    "signed_in_native_api_verified": true,
+    "browser_verified": false,
+    "completed_at": "2026-11-16T16:41:30+00:00"
+  },
+  "accounting_setup": {
+    "checked_at": "2026-11-16T16:16:33+00:00",
+    "scope": "isolated_pilot",
+    "tenant_id": 2002,
+    "setup": {
+      "ok": true,
+      "templates": [
+        "staffing.w2_hours_approved",
+        "staffing.contractor_hours_approved",
+        "staffing.internal_hours_approved",
+        "staffing.referral_hours_approved"
+      ],
+      "templates_inserted": 4,
+      "templates_upgraded": 0,
+      "rules_inserted": 4,
+      "dimensions_inserted": 15,
+      "dimension_rules_inserted": 47,
+      "accounts": {
+        "Direct Labor Expense": 592,
+        "Subcontractor Expense": 593,
+        "Employer Payroll Tax Expense": 594,
+        "Workers Compensation Expense": 597,
+        "Worker Benefits Expense": 598,
+        "Other Direct Placement Cost": 600,
+        "Accrued Payroll": 577,
+        "Accrued AP": 575,
+        "Unbilled Receivable": 570,
+        "Service Revenue": 585
+      }
+    },
+    "created_record_counts": {
+      "accounting_account_dim_rules": 47,
+      "accounting_accounts": 39,
+      "accounting_dimensions": 15,
+      "accounting_journal_template_lines": 22,
+      "accounting_journal_templates": 4,
+      "accounting_posting_rules": 4
+    },
+    "existing_records_preserved": true,
+    "journal_previews": [
+      {
+        "rule_name": "staffing.w2_hours_approved",
+        "validation": {
+          "ok": true,
+          "balanced": true,
+          "total_debit": 187.5,
+          "total_credit": 187.5,
+          "line_count": 4,
+          "period": {
+            "id": null,
+            "entity_id": 127,
+            "period_number": 11,
+            "start_date": "2026-11-01",
+            "end_date": "2026-11-30",
+            "status": "open"
+          },
+          "entity_id": 127,
+          "line_validations": [
+            {
+              "line_no": 1,
+              "account_code": "5000",
+              "account_name": "Direct Labor Expense",
+              "debit": 62.5,
+              "credit": 0,
+              "errors": []
+            },
+            {
+              "line_no": 2,
+              "account_code": "2150",
+              "account_name": "Accrued Payroll",
+              "debit": 0,
+              "credit": 62.5,
+              "errors": []
+            },
+            {
+              "line_no": 3,
+              "account_code": "1150",
+              "account_name": "Unbilled Receivable",
+              "debit": 125,
+              "credit": 0,
+              "errors": []
+            },
+            {
+              "line_no": 4,
+              "account_code": "4000",
+              "account_name": "Service Revenue",
+              "debit": 0,
+              "credit": 125,
+              "errors": []
+            }
+          ],
+          "errors": []
+        }
+      }
+    ],
+    "audit_recorded": true,
+    "handoff_status": "pending",
+    "dispatch_attempts": 0,
+    "provider_requests": 0,
+    "financial_postings": false,
+    "production_changed": false
+  },
+  "final_readback": {
+    "checked_at": "2026-11-16T16:52:54+00:00",
+    "passed": true,
+    "scope": "isolated_pilot",
+    "placement_flow": {
+      "person": "P-358",
+      "placement": "PL-864",
+      "core_and_quanta_match": true,
+      "quanta_assignment_version": 4,
+      "work_location": {
+        "city": "Hamilton",
+        "state": "NJ",
+        "country": "US"
+      },
+      "purepay": {
+        "state": "created",
+        "assignment_id": "asg_core_329879a277eb3fb0398832357ad55998706add368dad8c75386e2058745ba2d6",
+        "assignment_status": "active",
+        "accepted_revision": "e1fb0fa0ae9055f50aa236c243f887f50f0a9bd4dfead9b0d66ebd33ff7899b3"
+      },
+      "onboarding_version": 7,
+      "onboarding_tasks_preserved": true,
+      "jobdiva_policy": {
+        "company": {
+          "source": "jobdiva",
+          "direction": "off"
+        },
+        "contact": {
+          "source": "jobdiva",
+          "direction": "off"
+        },
+        "placement": {
+          "source": "jobdiva",
+          "direction": "pull"
+        },
+        "time": {
+          "source": "coreflux",
+          "direction": "off"
+        }
+      }
+    },
+    "financial_flow": {
+      "person": "P-387",
+      "placement": "PL-902",
+      "time_entry_id": 24,
+      "approved_hours": "1.25",
+      "approved_pay": "62.50",
+      "approved_bill": "125.00",
+      "currency": "USD",
+      "held_payroll_result_id": 8,
+      "payroll_execution_hold": true,
+      "invoice": {
+        "id": 699,
+        "invoice_number": "INV-2026-0001",
+        "status": "draft",
+        "currency": "USD",
+        "total": "125.00",
+        "journal_entry_id": null,
+        "entity_id": null
+      },
+      "invoice_line": {
+        "source_type": "time_entry",
+        "source_ref_id": 24,
+        "placement_id": 902,
+        "quantity": "1.2500",
+        "unit_price": "100.0000",
+        "total": "125.00"
+      },
+      "accounting": {
+        "handoff_id": 4,
+        "status": "pending",
+        "dispatch_attempts": 0,
+        "journals": [
+          {
+            "entity_id": 127,
+            "total_debit": 187.5,
+            "total_credit": 187.5,
+            "lines": [
+              {
+                "line_no": 1,
+                "account_code": "5000",
+                "account_name": "Direct Labor Expense",
+                "debit": 62.5,
+                "credit": 0,
+                "errors": []
+              },
+              {
+                "line_no": 2,
+                "account_code": "2150",
+                "account_name": "Accrued Payroll",
+                "debit": 0,
+                "credit": 62.5,
+                "errors": []
+              },
+              {
+                "line_no": 3,
+                "account_code": "1150",
+                "account_name": "Unbilled Receivable",
+                "debit": 125,
+                "credit": 0,
+                "errors": []
+              },
+              {
+                "line_no": 4,
+                "account_code": "4000",
+                "account_name": "Service Revenue",
+                "debit": 0,
+                "credit": 125,
+                "errors": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "all_core_tables_unchanged": 382,
+    "new_time_submissions": 0,
+    "financial_execution": false,
+    "production_changed": false,
+    "browser_verified": false
+  },
+  "temporary_access_retired": {
+    "user_id": 132,
+    "membership_id": 118,
+    "tenant_id": 2002,
+    "prepared_at": "2026-11-16T16:34:37+00:00",
+    "retire_by": "2026-11-16T17:34:37+00:00",
+    "active": false,
+    "credentials_removed": true,
+    "module_grants": 0,
+    "checked_at": "2026-11-16T16:55:49+00:00"
+  },
+  "limits": [
+    "Selected controlled pilot flows; production rollout and automated bulk refresh remain pending.",
+    "Invoice 699 remains a draft with no legal entity selected; do not treat it as ready to post.",
+    "Accounting handoff 4 is validated but pending, with no dispatch or posted journal.",
+    "Synthetic held payroll does not establish tax-calculation acceptance.",
+    "PL-864 account-manager name and workers compensation class remain unresolved.",
+    "Historical approval rate evidence remains missing for Alexander's October time and older PL-902 time; no current-rate substitution.",
+    "Native signed-in endpoints passed; browser acceptance of this new draft was blocked by device authentication.",
+    "No new time submissions, payroll execution, payments, production cutover or Arabella changes.",
+    "Full integration and standalone-accounting production release remain incomplete."
+  ],
+  "local_evidence_sha256": {
+    "jobdiva-refresh-installed-verification.json": "327a0cc86e656881c7581f6e000355ae8c59b93a95e2d87cb5ad70c7d9bf6a81",
+    "jobdiva-personnel-installed-verification.json": "dccf35af152e515fa7e5460d09a7e289fb7fc2cbc08dfca57c422bf9ffa5a0bf",
+    "selected-jobdiva-native-applied-20261116.json": "5c85961b45d748aace98132d981c13c1ab23c7b1299e49e55b3c9f9c3d51f537",
+    "selected-quanta-location-20261116.json": "473156290117c64bc3afc595ba34a7459cd9774c3dc7bcf39019dd831f8620cc",
+    "selected-consumer-delivery-20261116.json": "ce8cd09451e0af6c2c9ce6cf32779a08e8ca34b8a5a6a7bc7391f5fa3fbf28d7",
+    "selected-pure-native-revision-20261116-2.json": "a9a78e67640810ffec50e79d9fdde6af909200f4b4cd1424de3fd09ae5cfde80",
+    "selected-financial-draft-verification-20261116.json": "ba0ffcea0d1c5f46e7c21dbf473e0ac07e7d500960b00e92f3a76ed4f027982a",
+    "selected-invoice-visibility-20261116.json": "702765083d0361cf440e77c88bf7964ff31cbadcb661e89259b0e04bb5dac514",
+    "staffing-accounting-setup-installed-20261116.json": "2101ba4f36f8acba0035a4e3ec61f5f566f6219da246d3e8b7daddf68ff56c91",
+    "priority-flows-final-20261116.json": "8ca014483c730a62578060e9e6319f4e4525486caf0a9967e7c5cd8cf5ddacc3",
+    "pilot-flow-operator-retire-20261116.json": "f9b73147341bd25e9269199d8110ec5d778ef223981bf23892e8eddd0623ff76"
+  }
+}
