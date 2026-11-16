@@ -460,9 +460,13 @@ final class FullCoreReleaseFiles
             }
             $this->journal('directory_create_complete', $relative);
         }
+        $readChecks = 0;
         foreach ($this->plan['files'] as $relative => $entry) {
             if (isset($treeFiles[$relative])) continue;
-            $this->held('file-apply'); $source = $this->candidate($relative, $entry['after']);
+            // Candidate reads and private staging do not change the application.
+            // Every actual rename still gets its own fresh guard in replace().
+            if ($readChecks++ % 64 === 0) $this->held('file-apply');
+            $source = $this->candidate($relative, $entry['after']);
             $this->journal('file_replace_start', $relative);
             $this->replace($relative, $entry['before'], $entry['after'], (string) file_get_contents($source));
             $this->journal('file_replace_complete', $relative);
@@ -494,12 +498,17 @@ final class FullCoreReleaseFiles
             $treeFiles += $tree['files']; $treeDirectories += $tree['directories'];
         }
         foreach ($completeTrees as $relative) $this->removeTree($trees[$relative]);
+        $readChecks = 0;
         foreach ($this->plan['files'] as $relative => $entry) {
             if (isset($treeFiles[$relative])) continue;
-            $this->held('file-recovery'); $target = $this->path($this->root, $relative);
+            // Already-original files only need bounded read observations.
+            // A restoration rename or an added-file removal is guarded below.
+            if ($readChecks++ % 64 === 0) $this->held('file-recovery');
+            $target = $this->path($this->root, $relative);
             if (self::same(self::metadata($target, true), $entry['before'])) continue;
             $this->journal('file_restore_start', $relative);
             if ($entry['before'] === null) {
+                $this->held('file-remove');
                 if (!self::same(self::metadata($target, true), $entry['after']) || !unlink($target)) throw new RuntimeException('Added file changed before removal.');
             } else $this->replace($relative, $entry['after'], $entry['before'], $this->privateRead($this->private . '/backup-' . hash('sha256', $relative)));
             $this->journal('file_restore_complete', $relative);

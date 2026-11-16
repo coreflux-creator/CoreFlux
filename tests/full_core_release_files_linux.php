@@ -16,6 +16,8 @@ if (($argv[1] ?? '') === '--owner') {
         if ($action === 'refuse-backup-completion' && $phase === 'file-backup-complete') return false;
         if ($action === 'refuse-added-backup-guard' && $phase === 'file-backup' && ++$calls === 5) return false;
         if ($action === 'refuse-tree-guard' && $phase === 'directory-rename') return false;
+        if ($action === 'refuse-file-rename' && $phase === 'file-rename') return false;
+        if ($action === 'refuse-file-remove' && $phase === 'file-remove') return false;
         if ($action === 'tamper-staged-tree' && $phase === 'directory-rename') {
             $trees = glob($base . '/private-1004/pending-tree-*');
             if (count($trees) !== 1) throw new RuntimeException('Expected one staged test tree.');
@@ -37,8 +39,8 @@ if (($argv[1] ?? '') === '--owner') {
             $bytes, hash('sha256', $bytes), $guard);
         if (in_array($action, ['prepare','refuse-guard','refuse-backup-completion','refuse-added-backup-guard'], true)) $adapter->prepare();
         elseif (in_array($action, ['apply', 'crash-rename', 'crash-directory', 'crash-tree-installed', 'refuse-tree-guard',
-            'tamper-staged-tree', 'concurrent-tree-target'], true)) $adapter->apply();
-        elseif (in_array($action, ['recover', 'crash-tree-recovery'], true)) $adapter->recover();
+            'tamper-staged-tree', 'concurrent-tree-target', 'refuse-file-rename'], true)) $adapter->apply();
+        elseif (in_array($action, ['recover', 'crash-tree-recovery', 'refuse-file-remove'], true)) $adapter->recover();
         elseif ($action === 'verify-original') $adapter->verify(false);
         elseif ($action === 'verify-applied') $adapter->verify(true);
         else throw new RuntimeException('Unknown fixture action.');
@@ -68,7 +70,7 @@ $write = static function (string $path, string $bytes, int $uid, int $mode, int 
     if (!is_dir(dirname($path))) mkdir(dirname($path), 0755, true);
     file_put_contents($path, $bytes); chown($path, $uid); chgrp($path, 33); chmod($path, $mode); touch($path, $mtime);
 };
-$setup = static function (string $id, int $bulk = 0) use ($meta, $write): array {
+$setup = static function (string $id, int $bulk = 0, int $individual = 0) use ($meta, $write): array {
     $base = '/fixture/' . $id; mkdir($base, 0755); $root = $base . '/public_html'; mkdir($root, 0775); chown($root, 1004); chgrp($root, 33); chmod($root, 0775);
     mkdir($root . '/shared', 0775); chown($root . '/shared', 1004); chgrp($root . '/shared', 33); chmod($root . '/shared', 0775);
     $originals = ['master.php' => [1003, 0644], 'shared/master-old.php' => [1003, 0644],
@@ -85,6 +87,7 @@ $setup = static function (string $id, int $bulk = 0) use ($meta, $write): array 
         'new-app/code.php' => file_get_contents(__DIR__ . '/../core/migration_hash.php'),
         'new-app/folder with spaces/logo with spaces.bin' => "\x89PNG\0synthetic source asset\xff"];
     for ($i = 0; $i < $bulk; $i++) $sources['new-app/vendor/dependency-' . $i . '/code.php'] = '<?php return ' . $i . ';';
+    for ($i = 0; $i < $individual; $i++) $sources['shared/added-' . $i . '.php'] = '<?php return ' . $i . ';';
     $manifest = ['product' => 'full-core-staging', 'commit' => str_repeat('c', 40), 'files' => []];
     foreach ($sources as $r => $bytes) $manifest['files'][$r] = hash('sha256', $bytes);
     $manifestBytes = json_encode($manifest, JSON_THROW_ON_ERROR);
@@ -158,6 +161,42 @@ $assert($run($base,1004,'recover')[0] === 0 && $run($base,1004,'verify-original'
     'fresh recovery resumes after tree removal without replay or deleting its private evidence');
 $assert(is_file($base.'/private-1004/recovered-tree-'.hash('sha256','new-app').'/vendor/dependency-1023/code.php'),
     'removed dependency bytes are retained privately instead of recursive public deletion');
+
+// Existing mixed-owner directories cannot use an atomic whole-tree install.
+// Keep one fresh guard for every rename/removal, with bounded read-only batches.
+[$base] = $setup('bulk-individual', 0, 257); $protected = $unchanged($base);
+$assert($run($base,1004,'prepare')[0] === 0, 'individual-file preparation preserves original mixed ownership');
+$applied = $run($base,1004,'apply'); $counts = json_decode($applied[1],true)['guards'] ?? [];
+$assert($applied[0] === 0 && ($counts['file-rename'] ?? 0) === 259
+    && ($counts['file-apply'] ?? 1000) <= 6 && $run($base,1004,'verify-applied')[0] === 0,
+    'every individual installation has a fresh rename guard while read checks stay bounded');
+$restored = $run($base,1004,'recover'); $counts = json_decode($restored[1],true)['guards'] ?? [];
+$assert($restored[0] === 0 && ($counts['file-rename'] ?? 0) === 2 && ($counts['file-remove'] ?? 0) === 257
+    && ($counts['file-recovery'] ?? 1000) <= 6 && $run($base,1004,'verify-original')[0] === 0,
+    'every recovery mutation is freshly guarded and all original metadata is restored');
+$again = $run($base,1004,'recover'); $counts = json_decode($again[1],true)['guards'] ?? [];
+$assert($again[0] === 0 && ($counts['file-recovery'] ?? 1000) <= 6
+    && ($counts['file-rename'] ?? 0) === 0 && ($counts['file-remove'] ?? 0) === 0 && $unchanged($base) === $protected,
+    'unchanged recovery batches read checks without mutating files or protected paths');
+
+[$base] = $setup('individual-rename-refusal', 0, 65);
+$original = hash_file('sha256', $base.'/public_html/application.php');
+$assert($run($base,1004,'prepare')[0] === 0 && $run($base,1004,'refuse-file-rename')[0] === 2
+    && hash_file('sha256', $base.'/public_html/application.php') === $original
+    && !is_file($base.'/public_html/shared/added-0.php'),
+    'lost rename guard preserves original files and refuses individual additions');
+$assert($run($base,1004,'recover')[0] === 0 && $run($base,1004,'verify-original')[0] === 0,
+    'explicit recovery remains possible after a refused individual rename');
+
+[$base] = $setup('individual-removal-refusal', 0, 65);
+$assert($run($base,1004,'prepare')[0] === 0 && $run($base,1004,'apply')[0] === 0,
+    'individual removal-refusal scenario has verified candidate files');
+$added = hash_file('sha256', $base.'/public_html/shared/added-0.php');
+$assert($run($base,1004,'refuse-file-remove')[0] === 2
+    && hash_file('sha256', $base.'/public_html/shared/added-0.php') === $added,
+    'lost removal guard leaves the exact added file in place');
+$assert($run($base,1004,'recover')[0] === 0 && $run($base,1004,'verify-original')[0] === 0,
+    'recovery resumes explicitly after an individually guarded removal refusal');
 
 foreach (['refuse-added-backup-guard','refuse-backup-completion'] as $action) {
     [$base] = $setup($action,128);
