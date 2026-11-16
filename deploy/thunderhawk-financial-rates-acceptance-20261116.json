@@ -1,0 +1,303 @@
+{
+  "recorded_at": "2026-11-16",
+  "scope": "isolated_pilot",
+  "application_source_commit": "cfb4244289fa3c6b32c40b860e388036cd2ae3c0",
+  "application_ci": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43898238913",
+  "installer_source_commit": "7260e0e11bc71e14c590dec67ab4aa3659982d0d",
+  "installer_ci": "https://github.com/coreflux-creator/CoreFlux/actions/runs/43899133912",
+  "ci_jobs_each": 11,
+  "installation": {
+    "checked_at": "2026-11-16T15:53:19+00:00",
+    "passed": true,
+    "operation": "0f835f379a8a6a4a2f8fa9c604e0886b",
+    "candidate": "cfb4244289fa3c6b32c40b860e388036cd2ae3c0",
+    "installed_files_verified": 13,
+    "dependency_pins_verified": 480,
+    "schema": {
+      "tables": 382,
+      "business_records_unchanged": true,
+      "migrations_applied": 0
+    },
+    "current_tables": 382,
+    "current_rows": 36136,
+    "configuration_preserved": true,
+    "maintenance_restored": true,
+    "scheduler_preserved": true,
+    "diagnostic_absent": true,
+    "database_backup_retained": true,
+    "fresh_runtime_loaded": true,
+    "production_changed": false,
+    "hosted_verification_writes": 0
+  },
+  "installed_behavior": {
+    "checked_at": "2026-11-16T15:53:23+00:00",
+    "passed": true,
+    "scope": "isolated_pilot",
+    "reports": [
+      {
+        "placement": "PL-864",
+        "period": {
+          "start": "2026-10-05",
+          "end": "2026-10-18"
+        },
+        "approved_hours": "80.00",
+        "pay_amount": null,
+        "bill_amount": null,
+        "entries": [
+          {
+            "id": 4,
+            "date": "2026-10-05",
+            "hours": "8.00",
+            "rate_evidence": "unavailable",
+            "rate_evidence_detail": "This older approval has no verified rate values. Review its original evidence before accounting.",
+            "currency": null,
+            "pay_amount": null,
+            "bill_amount": null
+          },
+          {
+            "id": 5,
+            "date": "2026-10-06",
+            "hours": "8.00",
+            "rate_evidence": "unavailable",
+            "rate_evidence_detail": "This older approval has no verified rate values. Review its original evidence before accounting.",
+            "currency": null,
+            "pay_amount": null,
+            "bill_amount": null
+          },
+          {
+            "id": 6,
+            "date": "2026-10-07",
+            "hours": "8.00",
+            "rate_evidence": "unavailable",
+            "rate_evidence_detail": "This older approval has no verified rate values. Review its original evidence before accounting.",
+            "currency": null,
+            "pay_amount": null,
+            "bill_amount": null
+          },
+          {
+            "id": 7,
+            "date": "2026-10-08",
+            "hours": "8.00",
+            "rate_evidence": "unavailable",
+            "rate_evidence_detail": "This older approval has no verified rate values. Review its original evidence before accounting.",
+            "currency": null,
+            "pay_amount": null,
+            "bill_amount": null
+          },
+          {
+            "id": 8,
+            "date": "2026-10-09",
+            "hours": "8.00",
+            "rate_evidence": "unavailable",
+            "rate_evidence_detail": "This older approval has no verified rate values. Review its original evidence before accounting.",
+            "currency": null,
+            "pay_amount": null,
+            "bill_amount": null
+          },
+          {
+            "id": 9,
+            "date": "2026-10-12",
+            "hours": "8.00",
+            "rate_evidence": "unavailable",
+            "rate_evidence_detail": "This older approval has no verified rate values. Review its original evidence before accounting.",
+            "currency": null,
+            "pay_amount": null,
+            "bill_amount": null
+          },
+          {
+            "id": 10,
+            "date": "2026-10-13",
+            "hours": "8.00",
+            "rate_evidence": "unavailable",
+            "rate_evidence_detail": "This older approval has no verified rate values. Review its original evidence before accounting.",
+            "currency": null,
+            "pay_amount": null,
+            "bill_amount": null
+          },
+          {
+            "id": 11,
+            "date": "2026-10-14",
+            "hours": "8.00",
+            "rate_evidence": "unavailable",
+            "rate_evidence_detail": "This older approval has no verified rate values. Review its original evidence before accounting.",
+            "currency": null,
+            "pay_amount": null,
+            "bill_amount": null
+          },
+          {
+            "id": 12,
+            "date": "2026-10-15",
+            "hours": "8.00",
+            "rate_evidence": "unavailable",
+            "rate_evidence_detail": "This older approval has no verified rate values. Review its original evidence before accounting.",
+            "currency": null,
+            "pay_amount": null,
+            "bill_amount": null
+          },
+          {
+            "id": 13,
+            "date": "2026-10-16",
+            "hours": "8.00",
+            "rate_evidence": "unavailable",
+            "rate_evidence_detail": "This older approval has no verified rate values. Review its original evidence before accounting.",
+            "currency": null,
+            "pay_amount": null,
+            "bill_amount": null
+          }
+        ],
+        "financial_lines": 5,
+        "repeat_unchanged": true
+      },
+      {
+        "placement": "PL-902",
+        "period": {
+          "start": "2026-11-09",
+          "end": "2026-11-22"
+        },
+        "approved_hours": "3.25",
+        "pay_amount": null,
+        "bill_amount": null,
+        "entries": [
+          {
+            "id": 15,
+            "date": "2026-11-09",
+            "hours": "1.00",
+            "rate_evidence": "not_applicable",
+            "rate_evidence_detail": null,
+            "currency": null,
+            "pay_amount": null,
+            "bill_amount": null
+          },
+          {
+            "id": 16,
+            "date": "2026-11-09",
+            "hours": "1.50",
+            "rate_evidence": "not_applicable",
+            "rate_evidence_detail": null,
+            "currency": null,
+            "pay_amount": null,
+            "bill_amount": null
+          },
+          {
+            "id": 17,
+            "date": "2026-11-09",
+            "hours": "2.00",
+            "rate_evidence": "unavailable",
+            "rate_evidence_detail": "This older approval has no verified rate values. Review its original evidence before accounting.",
+            "currency": null,
+            "pay_amount": null,
+            "bill_amount": null
+          },
+          {
+            "id": 24,
+            "date": "2026-11-14",
+            "hours": "1.25",
+            "rate_evidence": "verified",
+            "rate_evidence_detail": null,
+            "currency": "USD",
+            "pay_amount": "62.50",
+            "bill_amount": "125.00"
+          }
+        ],
+        "financial_lines": 0,
+        "repeat_unchanged": true
+      }
+    ],
+    "all_original_tables_unchanged": 382,
+    "provider_requests": 0,
+    "new_time_submissions": 0,
+    "payroll_payments_or_postings": false,
+    "production_changed": false
+  },
+  "placement_readback": {
+    "checked_at": "2026-11-16T15:38:11+00:00",
+    "scope": "isolated_pilot",
+    "quanta_workspace_verified": true,
+    "placements": [
+      {
+        "placement": "PL-864",
+        "person": "P-358",
+        "plan": "unchanged",
+        "remote_assignment_present": true,
+        "remote_version": 3,
+        "person_link_present": true,
+        "different_assignment_fields": [],
+        "assignment_context": {
+          "branch": "Jen/Saurabh",
+          "department": null,
+          "service_line": null,
+          "cost_center": null,
+          "workers_comp_class": null,
+          "remote_policy": "onsite"
+        },
+        "work_location": {
+          "city": null,
+          "state": "NJ",
+          "country": "US"
+        },
+        "start_date": "2026-05-18",
+        "end_date": "2027-03-20",
+        "core_status": "active",
+        "quanta_status": "active"
+      },
+      {
+        "placement": "PL-902",
+        "person": "P-387",
+        "plan": "unchanged",
+        "remote_assignment_present": true,
+        "remote_version": 1,
+        "person_link_present": true,
+        "different_assignment_fields": [],
+        "assignment_context": {
+          "branch": "Synthetic integration test",
+          "department": "Synthetic",
+          "service_line": "Pilot only",
+          "cost_center": "SYNTHETIC",
+          "workers_comp_class": "SYNTHETIC TEST ONLY",
+          "remote_policy": "remote"
+        },
+        "work_location": {
+          "city": "Hamilton",
+          "state": "NJ",
+          "country": "US"
+        },
+        "start_date": "2026-11-09",
+        "end_date": "2026-11-30",
+        "core_status": "active",
+        "quanta_status": "active"
+      }
+    ],
+    "protected_core_records_unchanged": true,
+    "provider_writes": 0,
+    "deliveries_created": 0
+  },
+  "jobdiva_authentication": {
+    "checked_at": "2026-11-16T15:49:14+00:00",
+    "provider": "JobDiva",
+    "tenant_id": 2,
+    "http_status": 200,
+    "result": "authenticated",
+    "production_changed": false,
+    "credential_values_returned": false,
+    "business_records_requested": 0,
+    "authentication_requests": 1
+  },
+  "evidence_sha256": {
+    "financial-rates-application-package-receipt.json": "868f7df63fcc7e08f6b1854ce3189737edd14df094d56636384907311785f97e",
+    "financial-rates-installed-verification.json": "6cab5c986307b6694e3e98f00a2403c835eb70d47a97a3ca953db11bfc5c728c",
+    "financial-rates-behavior-20261116.json": "18758db7afaa5700db87d4c2969789332612ef0d7ba886c9cdc17ee404f222ad",
+    "people-placement-flow-20261116.json": "eaae9f8aa1350414392f694846bc3d4e06e6bd7fe47b6c3570ea2c66d2a81ef8",
+    "jobdiva-authentication-20261116.json": "0d33b9da2b11ed71282601d803672cd9ecbaf38941872d912489f278f5928843",
+    "jobdiva-selected-identity-20261116.json": "2b05c917faf48aa178c8f3bf8eb68411957d424f355e5aa1c92dc36b90c595e3"
+  },
+  "browser_acceptance": "Pending user sign-in; component checks passed",
+  "new_time_submissions": 0,
+  "full_integration_complete": false,
+  "remaining": [
+    "Fresh JobDiva pilot connection and selected-source intake",
+    "Remaining field and receiving-app acceptance",
+    "Explicit time-to-financial-line allocations and financial result reconciliation",
+    "Full placement/onboarding lifecycle journeys",
+    "New time submissions deferred by user until milestones 1 and 3"
+  ]
+}
