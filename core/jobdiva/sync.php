@@ -6122,6 +6122,11 @@ function jobdivaSyncUpsertPlacementInTransaction(int $tid, int $personId, ?int $
             'primarySales', 'primary_sales', 'primary sales',
         ])
     );
+    // Assignment allocation fields can contain staff IDs, not display names.
+    // Keep those IDs in the source contract; absence of a resolved name must
+    // not overwrite a current name or populate a name column with an ID.
+    if (preg_match('/^\s*\d+\s*$/D', $recruiterName)) $recruiterName = '';
+    if (preg_match('/^\s*\d+\s*$/D', $accountManagerName)) $accountManagerName = '';
     $accountManagerEmail = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'account_manager_email', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, [

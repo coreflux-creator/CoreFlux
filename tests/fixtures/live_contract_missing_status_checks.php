@@ -41,3 +41,19 @@ JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$mappin
     $result=jobdivaLiveContractApply($current,$exact,$again,null,$actor);
     $check($result['projected']===1&&$counts===[$pdo->query('SELECT COUNT(*) FROM people')->fetchColumn(),$pdo->query('SELECT COUNT(*) FROM placements')->fetchColumn(),$pdo->query('SELECT COUNT(*) FROM placement_rates')->fetchColumn()],'A fresh repeat of the same exact contract creates no duplicate people, placements or rates');
 },true);
+
+foreach(['retain_existing','leave_unresolved','resolved_names']as$nameCase)JobdivaStoredReviewTransaction::run(static function()use($pdo,$workspace,$mappingId,$placement,$actor,$root,$rows,$read,$check,$nameCase):void{
+    $existing=$nameCase==='leave_unresolved'?null:'Reviewed native name';
+    $pdo->prepare('UPDATE placements SET recruiter_name=?,account_manager_name=? WHERE id=?')->execute([$existing,$existing,$placement]);
+    $remote=array_replace($root,['primaryRecruiter'=>'1602627','primarySales'=>'1632342']);
+    if($nameCase==='resolved_names')$remote=array_replace($remote,['recruiterName'=>'Resolved Recruiter','accountManagerName'=>'Resolved Manager']);
+    $snapshot=jobdivaLiveContractSnapshot($workspace,$mappingId);
+    $exact=['status'=>'verified','row'=>jobdivaAssignmentMarkVerified($remote,'99310001','searchStart:criteria_exact')];
+    $payload=jobdivaLiveContractInput($snapshot,$exact);$payload['_jd_assignment_detail']=$rows;
+    $payload['_jd_contract']=jobdivaAssignmentContractBuild($rows,jobdivaAssignmentStripDerivedFacets($payload,'99310001'),'99310001');
+    $result=jobdivaLiveContractApply($snapshot,$exact,$payload,null,$actor);$saved=$read('placements',$placement);
+    $check($result['projected']===1&&$saved['recruiter_name']===($nameCase==='resolved_names'?'Resolved Recruiter':$existing)
+        &&$saved['account_manager_name']===($nameCase==='resolved_names'?'Resolved Manager':$existing),'Staff allocation IDs never substitute for names: '.$nameCase);
+    $source=json_decode($read('external_entity_mappings',$mappingId)['payload_snapshot'],true);
+    $check(($source['primaryRecruiter']??null)==='1602627'&&($source['primarySales']??null)==='1632342','Original staff source IDs remain available for later identity resolution: '.$nameCase);
+},true);
