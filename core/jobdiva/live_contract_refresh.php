@@ -63,8 +63,10 @@ function jobdivaContractRelatedSnapshot(int $workspace,array $base,string $corpo
 function jobdivaLiveContractInput(array $expected, array $exact): array
 {
     $base = $expected['base']; $remote = $exact['row'] ?? null;
-    if (($exact['status'] ?? '') !== 'verified' || !is_array($remote)
-        || empty(jobdivaAssignmentValidate($remote, $base['external'])['valid'])
+    $review = ($exact['status'] ?? '') === 'contract_review' && is_array($remote)
+        && jobdivaAssignmentNeedsContractReview($remote, $base['external'], $expected['joined_payload']);
+    if (!is_array($remote) || (!$review && (($exact['status'] ?? '') !== 'verified'
+        || empty(jobdivaAssignmentValidate($remote, $base['external'])['valid'])))
         || empty(jobdivaAssignmentContextEvidence($remote, $expected['joined_payload'])['matches'])) {
         throw new RuntimeException('The returned Start does not match the retained assignment and worker context.', 409);
     }
@@ -90,6 +92,15 @@ function jobdivaLiveContractValidate(array $expected, array $exact, array $paylo
     $contract = jobdivaAssignmentContractBuild($rows, $hint, $expected['base']['external']);
     if ($contract === [] || mappingHash($contract) !== mappingHash($payload['_jd_contract'] ?? [])) throw new RuntimeException('The contract does not agree with the exact returned financial records.', 409);
     $payload['_jd_contract'] = $contract;
+    if (($exact['status'] ?? '') === 'contract_review') {
+        $status = jobdivaAssignmentCanonicalPlacementStatus((string)($contract['placement_status'] ?? ''), jobdivaNormaliseDate($contract['end_date'] ?? null))['status'];
+        // CanonicalPlacementStatus has a legacy active default. Require the
+        // contract's own positive billing/salary evidence before using it.
+        if (!in_array($contract['placement_status'] ?? '', ['active','pending_start','on_hold'], true)
+            || !in_array($status, ['active','pending_start','on_hold'], true)) {
+            throw new RuntimeException('The exact assignment contract does not establish a current placement. Review its lifecycle.', 422);
+        }
+    }
     return $payload;
 }
 
@@ -139,11 +150,17 @@ function jobdivaLiveContractApply(array $expected, array $exact, ?array $payload
         $base = $expected['base']; $workspace = (int)$base['context']['workspace'];
         $current = jobdivaLiveContractSnapshot($workspace,(int)$base['mapping']['id'],$expected['corporation_id']);
         if (!hash_equals(jobdivaAssignmentRepairFingerprint($expected),jobdivaAssignmentRepairFingerprint($current))) throw new RuntimeException('Assignment, ownership or source evidence changed during the remote lookup. Retry this contract.',409);
-        if (($exact['status'] ?? '') !== 'verified') {
+        if (!in_array($exact['status'] ?? '', ['verified','contract_review'], true)) {
             $repair = jobdivaAssignmentRepairApply($current['base'],$exact,$actor);
             return ['projected'=>0,'restored'=>0,'skipped_not_current'=>0,'review_required'=>1,'source_decision'=>$repair];
         }
         $payload = jobdivaLiveContractValidate($current,$exact,$payload ?? []);
+        if (($exact['status'] ?? '') === 'contract_review') {
+            $payload['status'] = $payload['_jd_contract']['placement_status'];
+            $payload['startStatus'] = $payload['_jd_contract']['placement_status'];
+            $payload['__cf_jobdiva_lifecycle_source'] = 'EmployeeAssignmentRecordsDetail';
+            $payload = jobdivaAssignmentMarkVerified($payload, $base['external'], 'EmployeeAssignmentRecordsDetail:exact_mapped_review');
+        }
         $contract = $payload['_jd_contract']; $placement = $base['placement'];
         $owner = (int)$base['context']['placement_owner']; $placementId = (int)$placement['id'];
         $archived = !empty($placement['deleted_at']) && $placement['deleted_at'] !== '0000-00-00 00:00:00';
@@ -152,7 +169,10 @@ function jobdivaLiveContractApply(array $expected, array $exact, ?array $payload
         $lifecycle = $contractStatus !== '' ? jobdivaAssignmentCanonicalPlacementStatus($contractStatus,jobdivaNormaliseDate($contract['end_date'] ?? null)) : ['status'=>''];
         $personHeld = in_array('person_id',$base['owned_fields'],true);
         $worker = $personHeld ? $base['person'] : $current['source_person'];
-        if (!$personHeld && $current['person_source'] && (!$worker || $current['person_source']['sync_status'] !== 'ok')) throw new RuntimeException('Review the current assignment worker source link.',409);
+        // A stale observation retains its exact identity. The checked fresh
+        // Start may refresh that link through the normal person resolver;
+        // failed or deleted source links still require explicit review.
+        if (!$personHeld && $current['person_source'] && (!$worker || !in_array($current['person_source']['sync_status'], ['ok','stale'], true))) throw new RuntimeException('Review the current assignment worker source link.',409);
         $workerCurrent = $worker && empty($worker['deleted_at']) && in_array($worker['status'],['active','bench'],true);
         // Existing inactive workers cannot be reactivated as a side effect of contract refresh.
         if (!$archived && $worker && !$workerCurrent) throw new RuntimeException('Review the inactive assignment worker before refreshing this contract.',409);
@@ -185,8 +205,8 @@ function jobdivaRefreshLiveContract(int $workspace, int $mappingId, ?int $actor)
     if (getDB()->inTransaction() || JobdivaStoredReviewTransaction::inScope()) throw new RuntimeException('Start live contract refresh outside an existing transaction.',409);
     try{$expected = JobdivaStoredReviewTransaction::run(static fn()=>jobdivaLiveContractSnapshot($workspace,$mappingId),true);}
     catch(JobdivaHistoricalPlacementSource){return ['projected'=>0,'restored'=>0,'skipped_not_current'=>1,'review_required'=>0];}
-    $exact = jobdivaFetchExactAssignmentById($workspace,$expected['base']['external'],$expected['joined_payload']);
-    if (($exact['status'] ?? '') !== 'verified') return jobdivaLiveContractApply($expected,$exact,null,null,$actor);
+    $exact = jobdivaFetchExactAssignmentById($workspace,$expected['base']['external'],$expected['joined_payload'],true);
+    if (!in_array($exact['status'] ?? '', ['verified','contract_review'], true)) return jobdivaLiveContractApply($expected,$exact,null,null,$actor);
     $input = jobdivaLiveContractInput($expected,$exact);
     unset($input['_jd_assignment_detail'],$input['_jd_contract']);
     $diagnostics = [];

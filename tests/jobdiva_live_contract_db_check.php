@@ -34,6 +34,7 @@ try{
             'BILLING'=>[['Approved'=>true,'Actual Start'=>false,'COMPANY'=>[['ID'=>'99310004','Name'=>'Synthetic contract client']]]],'SALARY'=>[['Approved'=>true]]]];
         $fresh=$input+['_jd_assignment_detail'=>$rows,'_jd_contract'=>jobdivaAssignmentContractBuild($rows,jobdivaAssignmentStripDerivedFacets($input,'99310001'),'99310001')];
         require __DIR__.'/fixtures/review_contract_checks.php';
+        require __DIR__.'/fixtures/live_contract_missing_status_checks.php';
         $check(jobdivaLiveContractValidate($expected,$exact,$fresh)===$fresh,'Exact raw financial evidence rebuilds the supplied contract');
         $check(empty($fresh['_jd_contract']['overheads']['per_diem']),'Related job financial fields cannot fill missing assignment overheads');
         foreach(['bill_rate','pay_rate']as$missing){
@@ -115,5 +116,6 @@ try{
         $check(str_contains($failure(fn()=>jobdivaRefreshLiveContract($workspace,$mappingId,$actor)),'outside an existing transaction'),'Remote lookup refuses an existing transaction');
     },true);
     $check(!$pdo->inTransaction()&&!JobdivaStoredReviewTransaction::inScope(),'All synthetic live-contract data rolls back');
+    require __DIR__.'/fixtures/live_contract_fetch_checks.php';
 }finally{if($pdo->inTransaction())$pdo->rollBack();$pdo->exec('DROP TRIGGER IF EXISTS '.$trigger);$pdo->exec('DROP TRIGGER IF EXISTS fixture_review_contract_receipt');$pdo->exec('DROP TRIGGER IF EXISTS fixture_review_contract_history');}
 echo "$checks live contract checks passed.\n";

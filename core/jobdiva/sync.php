@@ -110,7 +110,8 @@ function jobdivaAssignmentSearchStartCriteria(array $hints): array
 function jobdivaFetchExactAssignmentById(
     int $tenantId,
     string $assignmentId,
-    array $hints = []
+    array $hints = [],
+    bool $allowContractReview = false
 ): array
 {
     $assignmentId = jobdivaAssignmentIdentityNormaliseId($assignmentId);
@@ -136,8 +137,14 @@ function jobdivaFetchExactAssignmentById(
             '/apiv2/jobdiva/searchStart',
             $criteria
         );
+        $rows = jobdivaAssignmentRowsFromResponse($response);
+        $exactRows = array_values(array_filter($rows, static fn($row) => is_array($row) && jobdivaAssignmentRowId($row) === $assignmentId));
+        if (count($exactRows) > 1) return [
+            'status'=>'not_assignment', 'row'=>null, 'error'=>'JobDiva returned competing rows for the selected Start',
+            'seen_ids'=>[$assignmentId], 'identity'=>['reason'=>'ambiguous_assignment_response'], 'criteria'=>array_keys($criteria),
+        ];
         $matchedButUnqualified = null;
-        foreach (jobdivaAssignmentRowsFromResponse($response) as $row) {
+        foreach ($rows as $row) {
             if (!is_array($row)) continue;
             $rowId = jobdivaAssignmentRowId($row);
             if ($rowId !== '') $seenIds[] = $rowId;
@@ -152,6 +159,10 @@ function jobdivaFetchExactAssignmentById(
             }
             $identity = jobdivaAssignmentValidate($row, $assignmentId, 'searchStart:criteria_exact');
             if (empty($identity['valid'])) {
+                if ($allowContractReview && jobdivaAssignmentNeedsContractReview($row, $assignmentId, $hints)) return [
+                    'status'=>'contract_review', 'row'=>$row, 'error'=>null, 'seen_ids'=>$seenIds,
+                    'identity'=>$identity, 'criteria'=>array_keys($criteria),
+                ];
                 $matchedButUnqualified = $identity;
                 continue;
             }

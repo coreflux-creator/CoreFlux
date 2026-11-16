@@ -317,6 +317,20 @@ function jobdivaAssignmentContextEvidence(array $assignment, array $placement): 
     ];
 }
 
+/** A missing workflow label may be reviewed against exact financial evidence, never inferred as active. */
+function jobdivaAssignmentNeedsContractReview(array $row, string $expectedId, array $hints): bool
+{
+    if (jobdivaAssignmentRowId($row) !== $expectedId
+        || count(jobdivaAssignmentIdentityValues($row, true)) !== 1
+        || (jobdivaAssignmentValidate($row, $expectedId)['reason'] ?? '') !== 'missing_assignment_state') return false;
+    $actual = jobdivaAssignmentStructuralEvidence($row);
+    $expected = jobdivaAssignmentStructuralEvidence($hints);
+    return !empty($actual['complete'])
+        && $expected['candidate_id'] !== '' && $expected['job_id'] !== ''
+        && $actual['candidate_id'] === $expected['candidate_id']
+        && $actual['job_id'] === $expected['job_id'];
+}
+
 function jobdivaAssignmentRowId(array $row): string
 {
     $dedicated = jobdivaAssignmentIdentityPluck($row, [

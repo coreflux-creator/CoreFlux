@@ -25,6 +25,25 @@ $valid = jobdivaAssignmentValidate($assignment, '56830791');
 $assert('assignment-shaped searchStart row is valid', !empty($valid['valid']));
 $assert('generic id resolves only with assignment tuple', ($valid['assignment_id'] ?? '') === '56830791');
 
+$unlabelled = array_replace($assignment, ['startStatus'=>null]);
+$assert('a blank status remains ineligible until exact contract review',
+    empty(jobdivaAssignmentValidate($unlabelled, '56830791')['valid'])
+    && jobdivaAssignmentNeedsContractReview($unlabelled, '56830791', $assignment));
+foreach (['Offer','Cancelled','Active','unrecognized'] as $status) {
+    $assert('contract fallback cannot replace an explicit '.$status.' label',
+        !jobdivaAssignmentNeedsContractReview(array_replace($unlabelled, ['startStatus'=>$status]), '56830791', $assignment));
+}
+foreach (['candidate id','job id','start date'] as $field) {
+    $sparse=$unlabelled;unset($sparse[$field]);
+    $assert('contract fallback requires returned '.$field, !jobdivaAssignmentNeedsContractReview($sparse, '56830791', $assignment));
+}
+$assert('contract fallback requires the retained candidate and job',
+    !jobdivaAssignmentNeedsContractReview($unlabelled, '56830791', ['candidate id'=>'12345'])
+    && !jobdivaAssignmentNeedsContractReview($unlabelled, '56830791', array_replace($assignment, ['job id'=>'999']))
+    && !jobdivaAssignmentNeedsContractReview($unlabelled, '56830791', array_replace($assignment, ['candidate id'=>'999'])));
+$assert('contract fallback cannot accept competing Start identities',
+    !jobdivaAssignmentNeedsContractReview($unlabelled+['startId'=>'999'], '56830791', $assignment));
+
 $candidate = [
     'id' => '56830791',
     'firstName' => 'Anson',
