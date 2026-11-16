@@ -43,7 +43,9 @@ function fullCoreUpgradeStatements(string $sql): array
         $buffer .= $c; $outside .= $c;
     }
     if ($quote !== null) throw new RuntimeException('Unterminated SQL literal or identifier.');
-    if (preg_match('/\b(?:BEGIN|DELIMITER)\b/i', $outside)) {
+    // DELIMITER is also a valid export-template column. Reject the client
+    // command at a statement boundary without rejecting that identifier.
+    if (preg_match('/\bBEGIN\b/i', $outside) || preg_match('/(?:^|;)\s*DELIMITER\b/i', $outside)) {
         throw new RuntimeException('Unquoted compound SQL requires separate review.');
     }
     if (trim($buffer) !== '') $statements[] = trim($buffer);

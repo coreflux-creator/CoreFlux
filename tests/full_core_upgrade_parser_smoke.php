@@ -16,9 +16,16 @@ $assert(count($parts) === 2 && str_contains($parts[0], 'Keep -- this; /*and this
     && str_contains($parts[1], '1--2'), 'quoted comments, doubled quotes and arithmetic remain intact');
 $parts = fullCoreUpgradeStatements("SET @q='CREATE TRIGGER t BEFORE UPDATE ON a FOR EACH ROW BEGIN SET NEW.id=OLD.id; END'; PREPARE s FROM @q; EXECUTE s; DEALLOCATE PREPARE s;");
 $assert(count($parts) === 4 && str_contains($parts[0], 'BEGIN SET NEW.id=OLD.id; END'), 'prepared compound trigger remains one quoted value');
+$parts = fullCoreUpgradeStatements("CREATE TABLE sample_export (id INT, delimiter VARCHAR(4)); INSERT INTO sample_export (id,delimiter) VALUES (1,';'); SELECT delimiter FROM sample_export;");
+$assert(count($parts) === 3 && str_contains($parts[1], "VALUES (1,';')"), 'delimiter column is accepted without splitting its quoted value');
+$payrollExport = fullCoreMigrationRead(dirname(__DIR__), 'core/migrations/204_payroll_calculation_export_template.sql');
+$parts = fullCoreUpgradeStatements($payrollExport);
+$assert(count($parts) === 1 && str_contains($parts[0], 'column_mappings_json') && str_contains($parts[0], 'WHERE NOT EXISTS'),
+    'actual payroll calculation export migration compiles before database work');
 foreach (["SELECT 'unfinished", 'SELECT `unfinished', 'SELECT 1 /* unfinished',
     '/*!40101 SET @x=1 */;', '/*M!100101 SET @x=1 */;',
-    'DELIMITER $$', 'CREATE TRIGGER t BEFORE UPDATE ON a FOR EACH ROW BEGIN SET NEW.id=1; END;',
+    'DELIMITER $$', "SELECT 1;\n-- client directive remains unsupported\n delimiter //",
+    "/* leading comment */ DELIMITER $$", 'CREATE TRIGGER t BEFORE UPDATE ON a FOR EACH ROW BEGIN SET NEW.id=1; END;',
     'USE another_database;', 'DROP DATABASE another_database;', 'CREATE SCHEMA another_database;',
     'ALTER DATABASE another_database CHARACTER SET utf8mb4;', 'START TRANSACTION;', 'COMMIT;',
     'ROLLBACK;', 'LOCK TABLES a WRITE;', 'UNLOCK TABLES;', '-- nothing to execute'] as $bad) {

@@ -90,6 +90,13 @@ SQL]);
     $refuses(fn() => $run($state, 'success-new-journal'), 'fresh filename cannot replay a stale completed plan');
     $assert($db->query('SELECT amount FROM balances WHERE id=1')->fetchColumn() === '26.19', 'replay attempts perform no duplicate update');
 
+    $delimiterState = $case('delimiter-identifier', ['core/migrations/002_export.sql' =>
+        "CREATE TABLE export_identifier_fixture(id INT PRIMARY KEY, delimiter VARCHAR(4)); INSERT INTO export_identifier_fixture(id,delimiter) VALUES(1,';');"]);
+    $delimiterReceipt = $run($delimiterState, 'delimiter-identifier');
+    $assert($delimiterReceipt['executed_statements'] === 2
+        && $db->query('SELECT delimiter FROM export_identifier_fixture WHERE id=1')->fetchColumn() === ';',
+        'native MariaDB executes a delimiter column while retaining its quoted separator value');
+
     $state = $case('partial', ['core/migrations/002_partial.sql' => 'ALTER TABLE balances ADD partial_marker INT NULL; UPDATE balances SET amount=amount+2 WHERE id=1; UPDATE unavailable_upgrade_fixture SET x=1; UPDATE balances SET amount=amount+100 WHERE id=1;',
         'core/migrations/003_must_not_run.sql' => 'CREATE TABLE should_not_exist(id INT);']);
     $refuses(fn() => $run($state, 'partial'), 'first SQL failure stops the remaining statements and files');
