@@ -46,6 +46,7 @@ class MaintenanceStatus:
         gateway_titles = {502: b'<title>502 Bad Gateway</title>',
                           503: b'<title>503 Service Unavailable</title>',
                           504: b'<title>504 Gateway Time-out</title>'}
+        held_ingress_page = b'CoreFlux is temporarily unavailable for maintenance. Please try again shortly.'
         for attempt in range(2):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -61,8 +62,12 @@ class MaintenanceStatus:
                     raise ValueError('Authenticated maintenance status exceeded its original bounds')
                 if response.status != 200:
                     title = gateway_titles.get(response.status)
+                    # Apache can apply the installed hold's ErrorDocument to a gateway reset.
+                    # This exact protected-ingress page is distinct from a JSON guard refusal.
+                    gateway_page = (title is not None and title in body and b'CoreFlux' not in body)
+                    protected_ingress = response.status == 503 and body.strip() == held_ingress_page
                     if (attempt == 0 and payload == {'action': 'status'} and media_type == 'text/html'
-                            and title is not None and title in body and b'CoreFlux' not in body):
+                            and (gateway_page or protected_ingress)):
                         continue
                     raise ValueError(f'Authenticated maintenance status unavailable (HTTP {response.status})')
                 result = json.loads(body)

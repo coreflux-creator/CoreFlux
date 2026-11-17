@@ -95,6 +95,11 @@ check(request(channel, 'GET', secret=token)[0] == 503, 'wrong method cannot ente
 check(request(channel, 'POST', {'action': 'status'})[0] == 404, 'missing token denied')
 check(request(channel, 'POST', {'action': 'status'}, 'wrong')[0] == 404, 'wrong token denied')
 check(request(channel, 'POST', {'action': 'status'}, token, 'wrong.local')[0] == 404, 'wrong host denied')
+(private / 'crash-next-observation').write_text('disposable worker crash')
+code, body, _ = request(channel, 'POST', {'action': 'status'}, token)
+check(code == 503 and body.strip() == b'CoreFlux is temporarily unavailable for maintenance. Please try again shortly.',
+      'Apache maps a gateway reset to the installed hold page, distinct from diagnostic refusal')
+check(status()['operation'] == spec['operation'], 'Fresh read after a worker exit still verifies the exact held operation')
 try:
     private.chmod(0o755)
     check(request(channel, 'POST', {'action': 'status'}, token)[0] == 503,

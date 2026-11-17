@@ -18,7 +18,18 @@ $spec = ['operation' => $operation, 'candidate_commit' => str_repeat('c', 40), '
     'library_sha256' => hash_file('sha256', '/fixture/private/full_core_maintenance_channel.php'),
     // Exercise an authenticated FPM channel beyond the old four-hour limit, within the six-hour bound.
     'issued_at' => $issuedAt, 'expires' => $issuedAt + 21600];
-file_put_contents('/fixture/public_html/' . $path, fullCoreMaintenanceChannelRender($spec));
+$channel = fullCoreMaintenanceChannelRender($spec);
+if (substr_count($channel, 'try {') !== 1) throw new RuntimeException('Expected authenticated fixture injection point.');
+// Disposable fixture only: reproduce Apache's response when an FPM worker exits before its first header.
+$channel = str_replace('try {', <<<'PHP'
+if (is_file('/fixture/private/crash-next-observation')) {
+    unlink('/fixture/private/crash-next-observation');
+    posix_kill(getmypid(), 9);
+    exit;
+}
+try {
+PHP, $channel);
+file_put_contents('/fixture/public_html/' . $path, $channel);
 file_put_contents('/fixture/client.json', json_encode(['spec' => $spec, 'token' => $token])); chmod('/fixture/client.json', 0600);
 file_put_contents('/fixture/held.htaccess', $held);
 $original = "Options -Indexes\nRewriteEngine On\n";

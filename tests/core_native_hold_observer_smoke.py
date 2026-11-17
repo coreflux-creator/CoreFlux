@@ -192,6 +192,10 @@ check(len(calls) == 2 and result == {'fresh': True} and failure is None, 'A tran
 check(calls[0].requested == calls[1].requested and calls[0].host == calls[1].host == 'www.corefluxapp.com',
       'Read retry retains exact authenticated endpoint and request')
 check([c.timeout for c in calls] == [8, 7.5], 'Retry shares the original eight-second request budget')
+held_page = FakeResponse(503, b'CoreFlux is temporarily unavailable for maintenance. Please try again shortly.\n', 'text/html')
+calls, result, failure = transport_case([held_page, good])
+check(len(calls) == 2 and result == {'fresh': True} and failure is None,
+      'Apache may apply the exact protected-ingress page to a transient gateway reset')
 for response in [FakeResponse(503, b'{"error":"Maintenance diagnostic unavailable; keep the hold in place."}'),
                  FakeResponse(404, b''), FakeResponse(403, b'Forbidden', 'text/html'),
                  FakeResponse(503, b'<html><title>503 Service Unavailable</title>CoreFlux maintenance</html>', 'text/html'),
@@ -201,6 +205,8 @@ for response in [FakeResponse(503, b'{"error":"Maintenance diagnostic unavailabl
     check(len(calls) == 1 and failure is not None, 'Authentication, hold and unrecognized failures stop without retry')
 calls, result, failure = transport_case([gateway, good], action='invalidate')
 check(len(calls) == 1 and failure is not None, 'Cache mutation is never retried')
+calls, result, failure = transport_case([held_page, good], action='invalidate')
+check(len(calls) == 1 and failure is not None, 'Protected-ingress page cannot cause cache mutation replay')
 calls, result, failure = transport_case([gateway, gateway, good])
 check(len(calls) == 2 and failure is not None, 'A second gateway failure is terminal')
 calls, result, failure = transport_case([gateway, good], clock=[0, 0, 7.5, 8.1])
