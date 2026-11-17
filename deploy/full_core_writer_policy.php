@@ -2,6 +2,16 @@
 /** Classify authenticated native observations against an explicitly reviewed, operation-bound policy. */
 declare(strict_types=1);
 
+/** A process snapshot raced a pool membership change; it is not a successful witness. */
+final class CoreWriterPoolChanged extends RuntimeException
+{
+    public function __construct(public readonly string $reason)
+    {
+        if (!in_array($reason, ['missing_worker', 'new_worker'], true)) throw new InvalidArgumentException('Unknown pool observation change.');
+        parent::__construct('Native Core web pool changed during observation.');
+    }
+}
+
 function coreWriterPolicySame(array $actual, array $pin, bool $command = true): bool
 {
     $keys = ['pid', 'ppid', 'start_ticks', 'uids'];
@@ -91,10 +101,15 @@ function coreWriterPolicyClassify(array $report, string $policyBytes, string $po
         || !coreWriterPolicySame($records[$poolMaster['pid'] ?? 0] ?? [], $poolMaster)
         || !is_string($policy['pool_name'] ?? null) || $policy['pool_name'] === '') throw new RuntimeException('Authenticated Core pool identity required.');
     foreach ($poolPids as $pid) {
+        if (!is_int($pid) || $pid < 1 || isset($allowed[$pid])) throw new RuntimeException('Native Core web worker differs.');
+        if (!isset($records[$pid])) throw new CoreWriterPoolChanged('missing_worker');
         $record = $records[$pid] ?? [];
-        if (!is_int($pid) || isset($allowed[$pid]) || ($record['uids'] ?? null) !== [1004,1004,1004,1004]
+        if (($record['uids'] ?? null) !== [1004,1004,1004,1004]
             || ($record['ppid'] ?? null) !== $poolMaster['pid']
-            || ($record['command_title_sha256'] ?? null) !== hash('sha256','php-fpm: pool '.$policy['pool_name'])) throw new RuntimeException('Native Core web worker differs.');
+            || ($record['command_title_sha256'] ?? null) !== hash('sha256','php-fpm: pool '.$policy['pool_name'])) {
+            $identity = array_intersect_key($record, array_flip(['pid','ppid','start_ticks','uids','command_title_sha256','state']));
+            throw new RuntimeException('Native Core web worker differs. ' . json_encode($identity, JSON_THROW_ON_ERROR));
+        }
         $allowed[$pid] = true;
     }
     $retained = $policy['retained_processes'] ?? [];
@@ -132,6 +147,11 @@ function coreWriterPolicyClassify(array $report, string $policyBytes, string $po
     }
     foreach ($report['processes'] as $record) {
         if (!isset($allowed[$record['pid']])) {
+            if (($record['uids'] ?? null) === [1004,1004,1004,1004]
+                && ($record['ppid'] ?? null) === $poolMaster['pid']
+                && ($record['command_title_sha256'] ?? null) === hash('sha256','php-fpm: pool '.$policy['pool_name'])) {
+                throw new CoreWriterPoolChanged('new_worker');
+            }
             // Private diagnostics retain identities and fingerprints, never command arguments.
             $identity = array_intersect_key($record, array_flip(['pid','ppid','start_ticks','uids','command_title_sha256','core_reference','state']));
             throw new RuntimeException('Unreviewed native process remains; retain hold. ' . json_encode($identity, JSON_THROW_ON_ERROR));

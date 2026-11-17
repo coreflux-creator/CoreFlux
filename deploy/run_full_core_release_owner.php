@@ -58,7 +58,15 @@ try {
         $result = $report;
         if ($request['action'] === 'witness-writers') {
             $policyBytes = ownerWorkerPrivate($config['writer_policy_path'] ?? '', $config['writer_policy_sha256'] ?? '');
-            $classified = coreWriterPolicyClassify($report,$policyBytes,$config['writer_policy_sha256'],$runtime);
+            try {
+                $classified = coreWriterPolicyClassify($report,$policyBytes,$config['writer_policy_sha256'],$runtime);
+            } catch (CoreWriterPoolChanged $change) {
+                // Read-only refusal, bound to this SSH request. No release action may be retried.
+                echo json_encode(['observation_changed'=>['kind'=>'core-web-pool-changed',
+                    'operation'=>$runtime['operation'],'candidate_commit'=>$runtime['candidate_commit'],'reason'=>$change->reason],
+                    'challenge'=>$request['challenge'],'owner_uid'=>posix_geteuid()],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR)."\n";
+                exit(75);
+            }
             $result = array_intersect_key($report,array_flip(['version','root','owner_uid','challenge','started_at_unix','observed_at_unix','boot_id']))
                 + ['scope'=>'native-writer-classification','writers'=>$classified,
                     'runtime_sha256'=>hash('sha256',FullCoreReleaseControl::encode($runtime))];

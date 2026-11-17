@@ -130,6 +130,10 @@ class OwnerInterrupted(RuntimeError):
     """The native outcome must be inspected before another action is selected."""
 
 
+class CoreWebPoolChanged(OwnerInterrupted):
+    """Authenticated read-only refusal; all observations must be replaced before proceeding."""
+
+
 @dataclass(frozen=True)
 class Endpoint:
     host: str
@@ -316,6 +320,7 @@ class Coordinator:
         reader.start()
         deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
         result = None
+        observation_changed = None
         exchanges = 0
         stream_bytes = 0
         stream_hash = hashlib.sha256()
@@ -332,9 +337,23 @@ class Coordinator:
                 if kind != 'line':
                     raise ValueError('Unbounded or incomplete native response')
                 event = json.loads(line)
-                if not isinstance(event, dict) or result is not None:
+                if not isinstance(event, dict) or result is not None or observation_changed is not None:
                     raise ValueError('Unexpected native response sequence')
-                if 'stream' in event:
+                if 'observation_changed' in event:
+                    changed = event['observation_changed']
+                    runtime = (data or {}).get('runtime')
+                    if (action != 'witness-writers' or set(event) != {'observation_changed', 'challenge', 'owner_uid'}
+                            or event['challenge'] != challenge or event['owner_uid'] != uid
+                            or not isinstance(changed, dict)
+                            or set(changed) != {'kind', 'operation', 'candidate_commit', 'reason'}
+                            or changed['kind'] != 'core-web-pool-changed'
+                            or changed['reason'] not in ('missing_worker', 'new_worker')
+                            or not isinstance(runtime, dict)
+                            or any(changed[key] != self.config['control_spec'][key] or changed[key] != runtime.get(key)
+                                   for key in ('operation', 'candidate_commit'))):
+                        raise ValueError('Unbound native observation change')
+                    observation_changed = changed
+                elif 'stream' in event:
                     if (action != 'capture-database-stream' or event.get('challenge') != challenge or event.get('owner_uid') != uid
                             or set(event) != {'stream','challenge','owner_uid'} or event['stream'].get('offset') != stream_bytes):
                         raise ValueError('Native database stream identity or order differs')
@@ -369,6 +388,10 @@ class Coordinator:
                     raise ValueError('Unexpected native exchange')
             process.stdin.close()
             code = process.wait(timeout=max(0.001, deadline - time.monotonic()))
+            if observation_changed is not None:
+                if code != 75:
+                    raise ValueError('Native observation change exit differs')
+                raise CoreWebPoolChanged('Core web pool changed during a read-only observation: ' + observation_changed['reason'])
             if code != 0 or result is None:
                 raise OwnerInterrupted(f'Owner {uid} action {action} refused or interrupted (exit {code})')
             if 'state' in result:

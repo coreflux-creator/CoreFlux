@@ -16,6 +16,7 @@ from datetime import datetime
 from urllib.parse import urlsplit
 
 from inspect_full_core_release import ROOT, encode, exact_hex
+from core_release_coordinator import CoreWebPoolChanged
 
 
 class MaintenanceStatus:
@@ -150,6 +151,21 @@ class NativeHoldObserver:
             raise ValueError('Authenticated active native owner required')
         own = self._hold(uid, query.get('own_hold'))
         other = 1004 if uid == 1003 else 1003
+        for attempt in range(2):
+            try:
+                return self._observe(query, own, other, started)
+            except CoreWebPoolChanged:
+                # FPM may retire or spawn a child between HTTPS and the two SSH
+                # observations. Discard the whole partial witness and sample all
+                # three again, once, within the original 15-second freshness bound.
+                # All other native refusals remain terminal; no phase is replayed.
+                if attempt or time.time() - started >= 7:
+                    raise
+                time.sleep(1)
+        raise ValueError('Complete native observation unavailable')
+
+    def _observe(self, query: dict, own: dict, other: int, started: float) -> dict:
+        uid = query['owner_uid']
         web = self.status()
         pids = self._web(web, started)
         runtime = {k: query[k] for k in ('operation', 'candidate_commit', 'owner_uid', 'owner_pid', 'owner_start_ticks')}

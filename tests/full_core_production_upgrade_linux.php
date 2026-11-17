@@ -754,4 +754,9 @@ if ($scenario === 'activate') {
     foreach ([1004, 1003] as $uid) $check(fixtureOwner($base, $uid, 'restore-hold')[0] === 0, 'explicit recovery completion restores each original schedule/routing');
     $check(fixtureHttp($spec, null, '/read.php')[1] === 'old-app|old-master', 'actual FPM serves matching original code after verified recovery');
 }
+if (getenv('CORE_FIXTURE_NATIVE_WRITERS') === '1') {
+    $recycled = json_decode((string)file_get_contents($base . '/pool-recycle-observed.json'), true, 512, JSON_THROW_ON_ERROR);
+    $check(($recycled['verified_fresh_witness'] ?? false) === true && !file_exists($base . '/recycle-pool-after-status.once'),
+        'actual retired FPM worker forces a complete fresh web and two-owner witness before proceeding');
+}
 echo "PASS combined production-shaped fixture $scenario: $checks checks; no live application or external network\n";

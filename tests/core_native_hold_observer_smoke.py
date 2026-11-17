@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
-from core_release_coordinator import Coordinator
+from core_release_coordinator import Coordinator, CoreWebPoolChanged, OwnerInterrupted
 from core_native_hold_observer import NativeHoldObserver, MaintenanceStatus
 from inspect_full_core_release import ROOT, encode
 
@@ -117,6 +117,67 @@ for field, value in [('receipt_sha256','0'*64),('held_cron_sha256','0'*64),('cli
 coordinator.mutate = lambda r: r.update(boot_id=str(r['owner_uid']))
 refuse(lambda: observer(query), 'Rejects different host observations')
 coordinator.mutate = None
+
+class ChangingPool(FakeCoordinator):
+    def __init__(self, failure_at, failure=CoreWebPoolChanged, repeat=False):
+        super().__init__()
+        self.failure_at, self.failure, self.repeat = failure_at, failure, repeat
+        self.runtimes, self.challenges = [], []
+
+    def call(self, uid, action, data=None):
+        self.runtimes.append(copy.deepcopy(data['runtime']))
+        self.challenges.append(data['challenge'])
+        if len(self.runtimes) == self.failure_at or self.repeat:
+            self.calls.append((uid, action))
+            raise self.failure('Fixture refusal')
+        return super().call(uid, action, data)
+
+for failed_call in (1, 2):
+    changing = ChangingPool(failed_call)
+    samples = []
+    def changed_status():
+        state = web(); state['pool']['process_ids'] = [300, 301 + len(samples)]
+        samples.append(state)
+        return state
+    with patch('core_native_hold_observer.time.sleep') as pause:
+        fresh = NativeHoldObserver(changing, binding, changed_status)(query)
+    check(len(samples) == 2 and pause.call_count == 1 and len(changing.runtimes) == failed_call + 2,
+          'Either native owner can request one complete new three-source observation')
+    check(fresh['web']['pool']['process_ids'] == [300, 302]
+          and all(r['pool_pids'] == [300, 302] for r in changing.runtimes[-2:])
+          and len(set(changing.challenges)) == len(changing.challenges),
+          'Partial witness is discarded; both native checks bind the new web snapshot and new challenges')
+for failure, repeat in ((OwnerInterrupted, False), (CoreWebPoolChanged, True)):
+    changing = ChangingPool(1, failure, repeat)
+    with patch('core_native_hold_observer.time.sleep'):
+        try:
+            NativeHoldObserver(changing, binding, web)(query)
+            check(False, 'Refusal expected')
+        except OwnerInterrupted:
+            check(len(changing.runtimes) == (2 if repeat else 1),
+                  'Other native refusals never retry; a second pool change is terminal')
+with patch('core_native_hold_observer.time.time', side_effect=[1000, 1007]), \
+        patch.object(NativeHoldObserver, '_observe', side_effect=CoreWebPoolChanged('changed')) as sample, \
+        patch('core_native_hold_observer.time.sleep') as pause:
+    try:
+        NativeHoldObserver(FakeCoordinator(), binding, web)(query)
+        check(False, 'Insufficient freshness must refuse another observation')
+    except CoreWebPoolChanged:
+        check(sample.call_count == 1 and not pause.called, 'No new deadline after the retry allowance is exhausted')
+
+clock = [time.time()]
+class SlowFreshSample(ChangingPool):
+    def call(self, uid, action, data=None):
+        result = super().call(uid, action, data)
+        if len(self.runtimes) == 3:
+            clock[0] += 16
+        return result
+slow = SlowFreshSample(1)
+with patch('core_native_hold_observer.time.time', side_effect=lambda: clock[0]), \
+        patch('core_native_hold_observer.time.sleep', side_effect=lambda seconds: clock.__setitem__(0, clock[0] + seconds)):
+    refuse(lambda: NativeHoldObserver(slow, binding, web)(query), 'A complete second sample cannot reset the original fifteen-second deadline')
+check(len(slow.runtimes) == 3, 'Stale resampling never asks for a third native attempt')
+
 for field, value in [('request_pool_quiet', False), ('process_ids', [300, 300]), ('process_ids', [True, 301]),
                      ('process_ids', []), ('total_processes', 3), ('other_busy_processes', 1)]:
     status = web(); status['pool'][field] = value

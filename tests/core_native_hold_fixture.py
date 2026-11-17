@@ -5,8 +5,10 @@ import json
 import os
 from pathlib import Path
 import secrets
+import signal
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
 from core_release_coordinator import Coordinator, Endpoint, WORKER_FILES
@@ -26,10 +28,23 @@ class FixtureStatus:
     """Only transport differs: a private loopback HTTP endpoint in an offline container."""
     def __init__(self, base):
         fixture_only(base)
+        self.base = base
         self.spec = json.loads((base / 'spec.json').read_bytes())
 
     def __call__(self):
-        return self._request({'action': 'status'})
+        status = self._request({'action': 'status'})
+        marker = self.base / 'recycle-pool-after-status.once'
+        if marker.is_file():
+            marker.unlink()
+            pid = status['pool']['process_ids'][0]
+            os.kill(pid, signal.SIGQUIT)  # Disposable, idle FPM child only, after its reply.
+            deadline = time.monotonic() + 2
+            while Path(f'/proc/{pid}').exists() and time.monotonic() < deadline:
+                time.sleep(.02)
+            if Path(f'/proc/{pid}').exists():
+                raise AssertionError('Disposable worker did not retire')
+            (self.base / 'pool-recycle-observed.json').write_bytes(encode({'retired_pid': pid, 'verified_fresh_witness': False}))
+        return status
 
     def invalidate(self, plan_sha256):
         return self._request({'action': 'invalidate', 'plan_sha256': plan_sha256})
@@ -62,7 +77,19 @@ def controller_for(base):
 def observer_for(controller, base, uid, *, upgrade=False):
     fixture_only(base)
     path = base / 'execution/release-binding.json' if upgrade else base / f'guard-{uid}.json'
-    return NativeHoldObserver(controller, json.loads(path.read_bytes()), FixtureStatus(base))
+    observer = NativeHoldObserver(controller, json.loads(path.read_bytes()), FixtureStatus(base))
+    def observe(query):
+        result = observer(query)
+        receipt = base / 'pool-recycle-observed.json'
+        if receipt.is_file():
+            evidence = json.loads(receipt.read_bytes())
+            if not evidence['verified_fresh_witness']:
+                assert evidence['retired_pid'] not in result['web']['pool']['process_ids']
+                assert result['writers']['unmanaged_writers'] == 0
+                evidence['verified_fresh_witness'] = True
+                receipt.write_bytes(encode(evidence))
+        return result
+    return observe
 
 
 def pin(record):
@@ -110,6 +137,7 @@ def prepare_policy(base):
         config.update(writer_policy_path=str(path), writer_policy_sha256=digest)
         config_path.write_bytes(encode(config))
     (base / 'writer-policy-preparation.json').write_bytes(encode({'policy_sha256': digest, 'reports': reports}))
+    (base / 'recycle-pool-after-status.once').write_text('Retire one idle fixture worker between HTTPS and SSH snapshots.')
     return digest
 
 

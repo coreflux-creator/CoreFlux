@@ -31,6 +31,20 @@ $classify=static function(array $r,array $pol,array $run):array{
     return coreWriterPolicyClassify($r,$bytes,hash('sha256',$bytes),$run);
 };
 $check($classify($report,$policy,$runtime)['unmanaged_writers']===0,'Independent SSH and authenticated pool accepted.');
+$poolChange=static function(callable $fn,string $reason)use($check):void{
+    try{$fn();}catch(CoreWriterPoolChanged $e){$check($e->reason===$reason,'Pool change is a typed refusal, never a successful witness.');return;}
+    $check(false,'Expected typed pool-change refusal.');
+};
+$bad=$report;array_pop($bad['processes']);
+$poolChange(fn()=>$classify($bad,$policy,$runtime),'missing_worker');
+$bad=$report;$bad['processes'][]=$p(777,20,1004,'php-fpm: pool core');
+$poolChange(fn()=>$classify($bad,$policy,$runtime),'new_worker');
+foreach(['ppid'=>999,'uids'=>[1003,1003,1003,1003],'command_title_sha256'=>hash('sha256','another worker')]as$key=>$value){
+    $bad=$report;$bad['processes'][4][$key]=$value;
+    try{$classify($bad,$policy,$runtime);$check(false,'Changed worker identity refused.');}
+    catch(CoreWriterPoolChanged){$check(false,'Wrong identity must not be retryable.');}
+    catch(RuntimeException){$check(true,'Existing worker with wrong credentials, parent or command is a hard refusal.');}
+}
 $bad=$report;$bad['processes'][]=$p(777,10,1004,'php cron.php');
 $refuse(fn()=>$classify($bad,$policy,$runtime),'Unknown application CLI rejected.');
 $bad=$report;$bad['processes'][]=$p(777,20,1004,'php-fpm: pool core');
