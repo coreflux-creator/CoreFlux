@@ -39,20 +39,39 @@ class MaintenanceStatus:
         return self._request({'action': 'invalidate', 'plan_sha256': plan_sha256})
 
     def _request(self, payload: dict) -> dict:
-        connection = http.client.HTTPSConnection(self.host, timeout=8, context=ssl.create_default_context())
-        try:
-            connection.request('POST', self.path, body=encode(payload), headers={
-                'Content-Type': 'application/json', 'X-CoreFlux-Maintenance': self.token})
-            response = connection.getresponse()
-            body = response.read(1048577)
-            if response.status != 200 or len(body) > 1048576:
-                raise ValueError('Authenticated maintenance status unavailable')
-            result = json.loads(body)
-            if not isinstance(result, dict):
-                raise ValueError('Exact maintenance status required')
-            return result
-        finally:
-            connection.close()
+        # FPM can recycle a worker between Apache's dispatch and its first header.
+        # Retry only a recognizable gateway page for a read-only status request.
+        # A diagnostic refusal, missing authentication, or cache mutation is never retried.
+        deadline = time.monotonic() + 8
+        gateway_titles = {502: b'<title>502 Bad Gateway</title>',
+                          503: b'<title>503 Service Unavailable</title>',
+                          504: b'<title>504 Gateway Time-out</title>'}
+        for attempt in range(2):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError('Authenticated maintenance status exceeded its original time budget')
+            connection = http.client.HTTPSConnection(self.host, timeout=remaining, context=ssl.create_default_context())
+            try:
+                connection.request('POST', self.path, body=encode(payload), headers={
+                    'Content-Type': 'application/json', 'X-CoreFlux-Maintenance': self.token})
+                response = connection.getresponse()
+                body = response.read(1048577)
+                media_type = (response.getheader('Content-Type') or '').split(';', 1)[0].strip().lower()
+                if len(body) > 1048576 or time.monotonic() >= deadline:
+                    raise ValueError('Authenticated maintenance status exceeded its original bounds')
+                if response.status != 200:
+                    title = gateway_titles.get(response.status)
+                    if (attempt == 0 and payload == {'action': 'status'} and media_type == 'text/html'
+                            and title is not None and title in body and b'CoreFlux' not in body):
+                        continue
+                    raise ValueError(f'Authenticated maintenance status unavailable (HTTP {response.status})')
+                result = json.loads(body)
+                if not isinstance(result, dict):
+                    raise ValueError('Exact maintenance status required')
+                return result
+            finally:
+                connection.close()
+        raise ValueError('Authenticated maintenance status unavailable')
 
 
 class NativeHoldObserver:

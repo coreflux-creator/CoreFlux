@@ -141,4 +141,70 @@ for url in ('http://www.corefluxapp.com' + path, 'https://evil.example' + path,
             'https://www.corefluxapp.com' + path + '?redirect=1', 'https://www.corefluxapp.com/api.php',
             'https://user:password@www.corefluxapp.com' + path):
     refuse(lambda: MaintenanceStatus(url, '2' * 64, binding['operation']), 'Credential endpoint is pinned')
+
+
+class FakeResponse:
+    def __init__(self, status, body, media_type='application/json'):
+        self.status, self.body, self.media_type = status, body, media_type
+
+    def read(self, limit):
+        return self.body[:limit]
+
+    def getheader(self, name):
+        return self.media_type if name == 'Content-Type' else None
+
+
+def transport_case(responses, action='status', clock=None):
+    connections = []
+
+    class Connection:
+        def __init__(self, host, timeout, context):
+            self.response = responses[len(connections)]
+            self.host, self.timeout, self.closed = host, timeout, False
+            connections.append(self)
+
+        def request(self, method, target, body, headers):
+            self.requested = (method, target, body, headers)
+
+        def getresponse(self):
+            return self.response
+
+        def close(self):
+            self.closed = True
+
+    endpoint = MaintenanceStatus('https://www.corefluxapp.com' + path, '2' * 64, binding['operation'])
+    with patch('core_native_hold_observer.http.client.HTTPSConnection', Connection), \
+            patch('core_native_hold_observer.ssl.create_default_context', return_value=object()), \
+            patch('core_native_hold_observer.time.monotonic', side_effect=clock or [0] * 12):
+        try:
+            result = endpoint() if action == 'status' else endpoint.invalidate('3' * 64)
+            failure = None
+        except ValueError as error:
+            result, failure = None, str(error)
+    check(all(c.closed for c in connections), 'Every observation connection closes')
+    return connections, result, failure
+
+
+good = FakeResponse(200, b'{"fresh":true}')
+gateway = FakeResponse(503, b'<html><title>503 Service Unavailable</title></html>', 'text/html; charset=utf-8')
+calls, result, failure = transport_case([gateway, good], clock=[0, 0, .25, .5, .75])
+check(len(calls) == 2 and result == {'fresh': True} and failure is None, 'A transient FPM gateway response permits one fresh read')
+check(calls[0].requested == calls[1].requested and calls[0].host == calls[1].host == 'www.corefluxapp.com',
+      'Read retry retains exact authenticated endpoint and request')
+check([c.timeout for c in calls] == [8, 7.5], 'Retry shares the original eight-second request budget')
+for response in [FakeResponse(503, b'{"error":"Maintenance diagnostic unavailable; keep the hold in place."}'),
+                 FakeResponse(404, b''), FakeResponse(403, b'Forbidden', 'text/html'),
+                 FakeResponse(503, b'<html><title>503 Service Unavailable</title>CoreFlux maintenance</html>', 'text/html'),
+                 FakeResponse(503, b'unknown response', 'text/html'),
+                 FakeResponse(503, gateway.body, 'application/json')]:
+    calls, result, failure = transport_case([response, good])
+    check(len(calls) == 1 and failure is not None, 'Authentication, hold and unrecognized failures stop without retry')
+calls, result, failure = transport_case([gateway, good], action='invalidate')
+check(len(calls) == 1 and failure is not None, 'Cache mutation is never retried')
+calls, result, failure = transport_case([gateway, gateway, good])
+check(len(calls) == 2 and failure is not None, 'A second gateway failure is terminal')
+calls, result, failure = transport_case([gateway, good], clock=[0, 0, 7.5, 8.1])
+check(len(calls) == 1 and failure is not None, 'Expired original budget prevents a retry')
+calls, result, failure = transport_case([FakeResponse(200, b'x' * 1048577), good])
+check(len(calls) == 1 and failure is not None, 'Oversized status is rejected without retry')
 print(f'core_native_hold_observer_smoke: {checks} checks passed')
