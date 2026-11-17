@@ -59,6 +59,8 @@ for _ in range(100):
     time.sleep(.1)
 else: raise AssertionError('Apache did not start')
 check(request('/read.php')[1] == b'old-first|old-second', 'warm both cached scripts')
+check(json.loads(request('/identity.php')[1])['posix_available'] is False,
+      'managed FPM restriction is active in the native fixture')
 check(request(channel, 'POST', {'action': 'status'}, token)[0] == 503, 'status refuses absent hold')
 request('/handler.php')
 before = (private / 'business-hits').read_bytes()
@@ -83,7 +85,7 @@ for finishing in [False, True]:
         web(original)
 
 web(held)
-for path in ['/', '/handler.php', '/api/probe.php', '/api/anything', '/dashboard/probe.php',
+for path in ['/', '/handler.php', '/identity.php', '/api/probe.php', '/api/anything', '/dashboard/probe.php',
              '/dashboard/anything', '/modules/accounting/api/probe.php', channel + '/extra', channel + '?x=1']:
     for method in ['GET', 'POST']:
         code, body, headers = request(path, method, {'action': 'status'}, token)
@@ -93,6 +95,18 @@ check(request(channel, 'GET', secret=token)[0] == 503, 'wrong method cannot ente
 check(request(channel, 'POST', {'action': 'status'})[0] == 404, 'missing token denied')
 check(request(channel, 'POST', {'action': 'status'}, 'wrong')[0] == 404, 'wrong token denied')
 check(request(channel, 'POST', {'action': 'status'}, token, 'wrong.local')[0] == 404, 'wrong host denied')
+try:
+    private.chmod(0o755)
+    check(request(channel, 'POST', {'action': 'status'}, token)[0] == 503,
+          'broader private directory permissions still refused without POSIX')
+finally:
+    private.chmod(0o700)
+try:
+    os.chown(private, 1004, 33)
+    check(request(channel, 'POST', {'action': 'status'}, token)[0] == 503,
+          'wrong private owner still refused without POSIX')
+finally:
+    os.chown(private, 33, 33)
 state = await_quiet()
 check(state['operation'] == spec['operation'] and state['candidate_commit'] == spec['candidate_commit']
       and state['held_web_sha256'] == spec['held_web_sha256'], 'status binds exact held release')

@@ -7,7 +7,7 @@ header('Cache-Control: no-store, private, max-age=0');
 header('Content-Type: application/json');
 header('X-Robots-Tag: noindex, nofollow');
 $spec = json_decode((string) base64_decode('__COREFLUX_MAINTENANCE_SPEC__', true), true);
-if (!is_array($spec) || PHP_SAPI !== 'fpm-fcgi' || !function_exists('posix_geteuid')
+if (!is_array($spec) || PHP_SAPI !== 'fpm-fcgi'
     || ($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST'
     || ($_SERVER['HTTP_HOST'] ?? '') !== ($spec['host'] ?? null)
     || ($_SERVER['REQUEST_URI'] ?? '') !== '/' . ($spec['path'] ?? '')
@@ -20,12 +20,24 @@ if (!is_array($spec) || PHP_SAPI !== 'fpm-fcgi' || !function_exists('posix_geteu
     http_response_code(404); exit;
 }
 try {
+    // Establish identity before loading private code, including when FPM disables POSIX functions.
+    $processStatus = @file_get_contents('/proc/self/status', false, null, 0, 16385);
+    if (!is_string($processStatus) || strlen($processStatus) > 16384
+        || preg_match_all('/^Uid:[\t ]+([0-9]+)[\t ]+([0-9]+)[\t ]+([0-9]+)[\t ]+([0-9]+)[\t ]*$/m', $processStatus, $matches, PREG_SET_ORDER) !== 1) {
+        throw new RuntimeException('Native web process identity unavailable.');
+    }
+    $ids = array_slice($matches[0], 1);
+    $uid = filter_var($ids[1], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+    if ($uid === false || count(array_unique($ids)) !== 1 || (function_exists('posix_geteuid') && posix_geteuid() !== $uid)) {
+        throw new RuntimeException('Stable unprivileged web identity required.');
+    }
+    unset($processStatus, $matches, $ids);
     $directory = $spec['private_directory'];
     $library = $directory . '/full_core_maintenance_channel.php';
     clearstatcache(true, $library); $stat = @lstat($library);
-    if (realpath($directory) !== $directory || is_link($directory) || fileowner($directory) !== posix_geteuid()
+    if (realpath($directory) !== $directory || is_link($directory) || fileowner($directory) !== $uid
         || (fileperms($directory) & 07777) !== 0700 || !$stat || !is_file($library) || is_link($library)
-        || realpath($library) !== $library || $stat['nlink'] !== 1 || $stat['uid'] !== posix_geteuid()
+        || realpath($library) !== $library || $stat['nlink'] !== 1 || $stat['uid'] !== $uid
         || ($stat['mode'] & 07777) !== 0600 || !hash_equals($spec['library_sha256'], hash_file('sha256', $library))) {
         throw new RuntimeException('Pinned channel unavailable.');
     }

@@ -78,11 +78,33 @@ function fullCoreMaintenanceChannelPrivate(string $path, int $uid): string
     return $bytes;
 }
 
+/** Read the kernel's effective identity when managed FPM disables POSIX functions. */
+function fullCoreMaintenanceChannelProcessUid(string $status): int
+{
+    if (strlen($status) > 16384
+        || preg_match_all('/^Uid:[\t ]+([0-9]+)[\t ]+([0-9]+)[\t ]+([0-9]+)[\t ]+([0-9]+)[\t ]*$/m', $status, $matches, PREG_SET_ORDER) !== 1) {
+        throw new RuntimeException('Native web process identity unavailable.');
+    }
+    $ids = array_slice($matches[0], 1);
+    $uid = filter_var($ids[1], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+    if ($uid === false || count(array_unique($ids)) !== 1) throw new RuntimeException('Stable unprivileged web identity required.');
+    return $uid;
+}
+
+function fullCoreMaintenanceChannelUid(): int
+{
+    $status = @file_get_contents('/proc/self/status', false, null, 0, 16385);
+    if (!is_string($status)) throw new RuntimeException('Native web process identity unavailable.');
+    $uid = fullCoreMaintenanceChannelProcessUid($status);
+    if (function_exists('posix_geteuid') && posix_geteuid() !== $uid) throw new RuntimeException('Native web identities differ.');
+    return $uid;
+}
+
 function fullCoreMaintenanceChannelHeld(array $spec): void
 {
     $path = $spec['root'] . '/.htaccess'; clearstatcache(true, $path); $stat = @lstat($path);
     if (!$stat || is_link($path) || !is_file($path) || realpath($path) !== $path || $stat['nlink'] !== 1
-        || $stat['uid'] !== posix_geteuid() || !in_array($stat['mode'] & 07777, [0644, 0664], true)
+        || $stat['uid'] !== fullCoreMaintenanceChannelUid() || !in_array($stat['mode'] & 07777, [0644, 0664], true)
         || !hash_equals($spec['held_web_sha256'], hash_file('sha256', $path))) {
         throw new RuntimeException('Exact web hold is not installed.');
     }
@@ -118,9 +140,9 @@ function fullCoreMaintenanceChannelCacheFiles(array $plan, array $spec): array
 function fullCoreMaintenanceChannelRun(array $spec, array $request): array
 {
     fullCoreMaintenanceChannelValidate($spec);
-    if (PHP_SAPI !== 'fpm-fcgi' || !function_exists('fpm_get_status') || !function_exists('posix_geteuid')
+    if (PHP_SAPI !== 'fpm-fcgi' || !function_exists('fpm_get_status')
         || realpath($spec['root']) !== $spec['root'] || realpath($spec['private_directory']) !== $spec['private_directory']
-        || is_link($spec['private_directory']) || fileowner($spec['private_directory']) !== posix_geteuid()
+        || is_link($spec['private_directory']) || fileowner($spec['private_directory']) !== fullCoreMaintenanceChannelUid()
         || (fileperms($spec['private_directory']) & 07777) !== 0700) throw new RuntimeException('Channel host prerequisite differs.');
     fullCoreMaintenanceChannelHeld($spec);
     $status = fpm_get_status();
@@ -135,7 +157,7 @@ function fullCoreMaintenanceChannelRun(array $spec, array $request): array
     if ($keys !== ['action', 'plan_sha256'] || ($request['action'] ?? null) !== 'invalidate'
         || !is_string($request['plan_sha256']) || !preg_match('/^[a-f0-9]{64}$/D', $request['plan_sha256'])
         || !$pool['request_pool_quiet']) throw new RuntimeException('Quiet pool and exact cache request required.');
-    $planBytes = fullCoreMaintenanceChannelPrivate($spec['private_directory'] . '/cache-plan.json', posix_geteuid());
+    $planBytes = fullCoreMaintenanceChannelPrivate($spec['private_directory'] . '/cache-plan.json', fullCoreMaintenanceChannelUid());
     if (!hash_equals($request['plan_sha256'], hash('sha256', $planBytes))) throw new RuntimeException('Cache plan digest differs.');
     $plan = json_decode($planBytes, true, 512, JSON_THROW_ON_ERROR);
     $files = fullCoreMaintenanceChannelCacheFiles($plan, $spec);

@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends apache2 python3
     && rm -rf /var/lib/apt/lists/* && docker-php-ext-install opcache \
     && a2enmod rewrite headers proxy proxy_fcgi >/dev/null \
     && mkdir /fixture && touch /run/core-channel-fixture
-RUN printf '[www]\npm.max_children = 5\npm.start_servers = 3\npm.min_spare_servers = 2\npm.max_spare_servers = 4\n' > /usr/local/etc/php-fpm.d/zzz-fixture.conf \
+RUN printf '[www]\npm.max_children = 5\npm.start_servers = 3\npm.min_spare_servers = 2\npm.max_spare_servers = 4\nphp_admin_value[disable_functions]=posix_geteuid\n' > /usr/local/etc/php-fpm.d/zzz-fixture.conf \
     && printf 'opcache.enable=1\nopcache.validate_timestamps=0\nopcache.file_update_protection=0\n' > /usr/local/etc/php/conf.d/fixture.ini
 COPY deploy /app/deploy
 COPY tests /app/tests

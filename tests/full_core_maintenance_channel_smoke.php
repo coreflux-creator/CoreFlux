@@ -52,4 +52,12 @@ foreach (['path' => '../app.php', 'private_directory' => '/fixture/public_html/p
 $reject(fn() => fullCoreMaintenanceWebRule($op, 'api.php'), 'arbitrary maintenance exemption rejected');
 $reject(fn() => fullCoreMaintenanceWebRule($op, str_replace($op, str_repeat('e', 32), $path)), 'other operation exemption rejected');
 $reject(fn() => fullCoreMaintenanceChannelRun($spec, ['action' => 'status']), 'CLI cannot impersonate FPM');
+
+$assert(fullCoreMaintenanceChannelProcessUid("Name:\tphp-fpm\nUid:\t1004\t1004\t1004\t1004\nGid:\t33\t33\t33\t33\n") === 1004,
+    'kernel identity remains available with POSIX web functions disabled');
+foreach (["", "Uid:\t0\t0\t0\t0\n", "Uid:\t1004\t33\t1004\t1004\n", "Uid:\t1004\t1004\t1004\n",
+    "Uid:\t1004\t1004\t1004\t1004\nUid:\t1004\t1004\t1004\t1004\n", "Uid:\t1e3\t1e3\t1e3\t1e3\n",
+    str_repeat('x', 16385)] as $invalidStatus) {
+    $reject(fn() => fullCoreMaintenanceChannelProcessUid($invalidStatus), 'missing, privileged, inconsistent or malformed process identity refused');
+}
 echo "PASS $checks maintenance-channel checks\n";

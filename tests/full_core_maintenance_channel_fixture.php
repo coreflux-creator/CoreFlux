@@ -26,6 +26,7 @@ file_put_contents('/fixture/original.htaccess', $original);
 file_put_contents('/fixture/public_html/.htaccess', $original);
 foreach (['first', 'second'] as $name) file_put_contents('/fixture/public_html/' . $name . '.php', '<?php return "old-' . $name . '";');
 file_put_contents('/fixture/public_html/read.php', '<?php echo (include __DIR__."/first.php")."|".(include __DIR__."/second.php");');
+file_put_contents('/fixture/public_html/identity.php', '<?php echo json_encode(["posix_available"=>function_exists("posix_geteuid")]);');
 file_put_contents('/fixture/public_html/handler.php', '<?php file_put_contents("/fixture/private/business-hits", "hit", FILE_APPEND); echo "handler-executed";');
 foreach (['api', 'dashboard', 'modules/accounting/api'] as $directory) {
     mkdir('/fixture/public_html/' . $directory, 0755, true);
