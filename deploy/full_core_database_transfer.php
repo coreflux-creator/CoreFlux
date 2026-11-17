@@ -7,6 +7,10 @@ final class FullCoreDatabaseTransfer
     private array $arguments;
     private array $environment;
     private const DB = 'grcudkpvcd';
+    // The full production archive exceeds 6 GB before transport encoding.
+    // Leave ten minutes for controller shutdown inside its one-hour budget;
+    // every in-flight writer observation still expires after fifteen seconds.
+    private const MAX_TRANSFER_SECONDS = 3000;
     public const CHUNK = 524288;
 
     public function __construct(array $connection)
@@ -122,7 +126,7 @@ final class FullCoreDatabaseTransfer
             stream_set_blocking($pipes[1], false); stream_set_blocking($pipes[2], false);
             $diagnostic = hash_init('sha256'); $lastGuard = 0.0; $started = microtime(true);
             while (!feof($pipes[1]) || !feof($pipes[2])) {
-                if (microtime(true) - $started > 1810) throw new RuntimeException('Native dump timed out.');
+                if (microtime(true) - $started > self::MAX_TRANSFER_SECONDS) throw new RuntimeException('Native dump timed out.');
                 if (microtime(true) - $lastGuard >= 1) { self::childConnection($db,$childId); $guard(); self::childConnection($db,$childId); $lastGuard = microtime(true); }
                 $read = array_values(array_filter($pipes, static fn($f): bool => !feof($f))); $write = $except = [];
                 if (!$read || stream_select($read,$write,$except,1) === 0) continue;
@@ -193,7 +197,7 @@ final class FullCoreDatabaseTransfer
                 if ($bytes + strlen($chunk) > $expected['sql_bytes']) throw new RuntimeException('Restore exceeds recorded SQL size.');
                 $offset = 0;
                 while ($offset < strlen($chunk)) {
-                    if (microtime(true) - $started > 1810) throw new RuntimeException('Native restore timed out.');
+                    if (microtime(true) - $started > self::MAX_TRANSFER_SECONDS) throw new RuntimeException('Native restore timed out.');
                     if (microtime(true) - $lastGuard >= 1) { self::childConnection($db,$childId); $guard(); self::childConnection($db,$childId); $lastGuard = microtime(true); }
                     $readable = feof($pipes[2]) ? [] : [$pipes[2]]; $write = [$pipes[0]]; $except = [];
                     if (stream_select($readable,$write,$except,1) === false) throw new RuntimeException('Native restore pipe failed.');
@@ -208,7 +212,7 @@ final class FullCoreDatabaseTransfer
             }
             fclose($pipes[0]); unset($pipes[0]);
             while (!feof($pipes[2])) {
-                if (microtime(true) - $started > 1810) throw new RuntimeException('Native restore timed out.');
+                if (microtime(true) - $started > self::MAX_TRANSFER_SECONDS) throw new RuntimeException('Native restore timed out.');
                 if (microtime(true) - $lastGuard >= 1) { self::childConnection($db,$childId); $guard(); $lastGuard = microtime(true); }
                 $r = [$pipes[2]]; $w = $e = []; if (stream_select($r,$w,$e,1)) stream_get_contents($pipes[2]);
             }
