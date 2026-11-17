@@ -68,6 +68,13 @@ class MaintenanceStatus:
                     protected_ingress = response.status == 503 and body.strip() == held_ingress_page
                     if (attempt == 0 and payload == {'action': 'status'} and media_type == 'text/html'
                             and (gateway_page or protected_ingress)):
+                        # Give the FPM parent time to retire/replenish the exited worker.
+                        # An immediate status read can race scoreboard slot replacement.
+                        # The pause consumes the original budget, never a new deadline.
+                        if deadline - time.monotonic() <= 1:
+                            raise ValueError('Insufficient original budget for a fresh maintenance read')
+                        connection.close()
+                        time.sleep(1)
                         continue
                     raise ValueError(f'Authenticated maintenance status unavailable (HTTP {response.status})')
                 result = json.loads(body)

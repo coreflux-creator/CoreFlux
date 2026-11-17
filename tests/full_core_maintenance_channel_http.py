@@ -99,6 +99,7 @@ check(request(channel, 'POST', {'action': 'status'}, token, 'wrong.local')[0] ==
 code, body, _ = request(channel, 'POST', {'action': 'status'}, token)
 check(code == 503 and body.strip() == b'CoreFlux is temporarily unavailable for maintenance. Please try again shortly.',
       'Apache maps a gateway reset to the installed hold page, distinct from diagnostic refusal')
+time.sleep(1)  # Same bounded worker-retirement pause as the production read-only observer.
 check(status()['operation'] == spec['operation'], 'Fresh read after a worker exit still verifies the exact held operation')
 try:
     private.chmod(0o755)

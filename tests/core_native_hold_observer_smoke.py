@@ -175,23 +175,28 @@ def transport_case(responses, action='status', clock=None):
     endpoint = MaintenanceStatus('https://www.corefluxapp.com' + path, '2' * 64, binding['operation'])
     with patch('core_native_hold_observer.http.client.HTTPSConnection', Connection), \
             patch('core_native_hold_observer.ssl.create_default_context', return_value=object()), \
+            patch('core_native_hold_observer.time.sleep') as pause, \
             patch('core_native_hold_observer.time.monotonic', side_effect=clock or [0] * 12):
         try:
             result = endpoint() if action == 'status' else endpoint.invalidate('3' * 64)
             failure = None
         except ValueError as error:
             result, failure = None, str(error)
+    check(pause.call_count <= 1 and (not pause.called or pause.call_args.args == (1,)),
+          'Only one bounded worker-recovery pause is permitted')
+    if len(connections) == 2:
+        check(pause.call_count == 1, 'A retried observation waits for worker retirement')
     check(all(c.closed for c in connections), 'Every observation connection closes')
     return connections, result, failure
 
 
 good = FakeResponse(200, b'{"fresh":true}')
 gateway = FakeResponse(503, b'<html><title>503 Service Unavailable</title></html>', 'text/html; charset=utf-8')
-calls, result, failure = transport_case([gateway, good], clock=[0, 0, .25, .5, .75])
+calls, result, failure = transport_case([gateway, good], clock=[0, 0, .25, .25, 1.25, 1.5])
 check(len(calls) == 2 and result == {'fresh': True} and failure is None, 'A transient FPM gateway response permits one fresh read')
 check(calls[0].requested == calls[1].requested and calls[0].host == calls[1].host == 'www.corefluxapp.com',
       'Read retry retains exact authenticated endpoint and request')
-check([c.timeout for c in calls] == [8, 7.5], 'Retry shares the original eight-second request budget')
+check([c.timeout for c in calls] == [8, 6.75], 'Recovery pause and retry share the original eight-second request budget')
 held_page = FakeResponse(503, b'CoreFlux is temporarily unavailable for maintenance. Please try again shortly.\n', 'text/html')
 calls, result, failure = transport_case([held_page, good])
 check(len(calls) == 2 and result == {'fresh': True} and failure is None,
