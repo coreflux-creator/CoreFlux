@@ -11,13 +11,13 @@ $path = 'core-maintenance-' . $operation . '-' . bin2hex(random_bytes(16)) . '.p
 $held = fullCoreMaintenanceWebRule($operation, $path);
 copy(__DIR__ . '/../deploy/full_core_maintenance_channel.php', '/fixture/private/full_core_maintenance_channel.php');
 chmod('/fixture/private/full_core_maintenance_channel.php', 0600);
-$issuedAt = time() - 14401;
+$issuedAt = time() - 21601;
 $spec = ['operation' => $operation, 'candidate_commit' => str_repeat('c', 40), 'path' => $path,
     'root' => '/fixture/public_html', 'private_directory' => '/fixture/private', 'host' => 'fixture.local', 'pool' => 'www',
     'token_sha256' => hash('sha256', $token), 'held_web_sha256' => hash('sha256', $held),
     'library_sha256' => hash_file('sha256', '/fixture/private/full_core_maintenance_channel.php'),
-    // Exercise an authenticated FPM channel beyond the old four-hour limit, within the six-hour bound.
-    'issued_at' => $issuedAt, 'expires' => $issuedAt + 21600];
+    // Exercise authenticated recovery beyond six hours, within the explicit eight-hour bound.
+    'issued_at' => $issuedAt, 'expires' => $issuedAt + 28800];
 $channel = fullCoreMaintenanceChannelRender($spec);
 if (substr_count($channel, 'try {') !== 1) throw new RuntimeException('Expected authenticated fixture injection point.');
 // Disposable fixture only: reproduce Apache's response when an FPM worker exits before its first header.

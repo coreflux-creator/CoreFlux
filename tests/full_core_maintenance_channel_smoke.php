@@ -39,10 +39,10 @@ $spec = ['operation' => $op, 'candidate_commit' => str_repeat('c', 40), 'path' =
     'library_sha256' => hash_file('sha256', __DIR__ . '/../deploy/full_core_maintenance_channel.php'),
     'issued_at' => 1000, 'expires' => 2000];
 $assert(str_starts_with(fullCoreMaintenanceChannelRender($spec), '<?php'), 'valid bound template rendered');
-$long = $spec; $long['expires'] = $long['issued_at'] + 21600;
-$assert(str_starts_with(fullCoreMaintenanceChannelRender($long), '<?php'), 'six-hour release and recovery window accepted');
+$long = $spec; $long['expires'] = $long['issued_at'] + 28800;
+$assert(str_starts_with(fullCoreMaintenanceChannelRender($long), '<?php'), 'eight-hour release and recovery window accepted');
 $tooLong = $long; $tooLong['expires']++;
-$reject(fn() => fullCoreMaintenanceChannelRender($tooLong), 'longer than six hours rejected');
+$reject(fn() => fullCoreMaintenanceChannelRender($tooLong), 'longer than eight hours rejected');
 $emptyLifetime = $spec; $emptyLifetime['expires'] = $emptyLifetime['issued_at'];
 $reject(fn() => fullCoreMaintenanceChannelRender($emptyLifetime), 'empty lifetime rejected');
 foreach (['path' => '../app.php', 'private_directory' => '/fixture/public_html/private', 'root' => '/fixture/../public_html',

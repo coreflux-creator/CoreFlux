@@ -20,7 +20,7 @@ function fullCoreMaintenanceChannelValidate(array $spec): void
         || !is_int($spec['expires'] ?? null) || !is_int($spec['issued_at'] ?? null)
         // Leave room for both a long native-owner deployment and its paired recovery.
         // This bounds the diagnostic credential; individual writer witnesses still expire in 15 seconds.
-        || $spec['expires'] <= $spec['issued_at'] || $spec['expires'] - $spec['issued_at'] > 21600) {
+        || $spec['expires'] <= $spec['issued_at'] || $spec['expires'] - $spec['issued_at'] > 28800) {
         throw new RuntimeException('Invalid diagnostic target or lifetime.');
     }
 }
