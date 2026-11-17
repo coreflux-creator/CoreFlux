@@ -20,6 +20,19 @@ function coreWriterPolicySame(array $actual, array $pin, bool $command = true): 
     return true;
 }
 
+/** Keep refusal details bounded and free of arbitrary process arguments or caller text. */
+function coreWriterPolicyVisibilitySummary(array $limits): array
+{
+    $safe = [];
+    foreach (array_slice($limits, 0, 32) as $limit) {
+        $safe[] = is_string($limit) && strlen($limit) <= 100 && preg_match(
+            '/^(?:registry-(?:unreadable|linked-target-unreadable|linked-target-needs-review|linked-target-unavailable|special-file|changed-during-observation)'
+            . '|(?:schedule|timers|services|at)-observation-unavailable|process-ancestry-incomplete|process-unreadable-or-changed:[1-9][0-9]{0,19})$/D',
+            $limit) ? $limit : 'unrecognized-limit';
+    }
+    return ['count'=>count($limits), 'limits'=>$safe];
+}
+
 function coreWriterPolicyClassify(array $report, string $policyBytes, string $policyHash, array $runtime): array
 {
     if (!preg_match('/^[a-f0-9]{64}$/D', $policyHash) || !hash_equals($policyHash, hash('sha256', $policyBytes))) {
@@ -49,7 +62,13 @@ function coreWriterPolicyClassify(array $report, string $policyBytes, string $po
         if (!in_array($limit, ['registry-unreadable','at-observation-unavailable'], true)) throw new RuntimeException('Unreviewable writer visibility gap.');
     }
     sort($limits); sort($reviewedLimits);
-    if ($limits !== $reviewedLimits || ($limits && trim($policy['platform_scope_evidence'] ?? '') === '')) throw new RuntimeException('Writer visibility review differs.');
+    if ($limits !== $reviewedLimits || ($limits && trim($policy['platform_scope_evidence'] ?? '') === '')) {
+        throw new RuntimeException('Writer visibility review differs. ' . json_encode([
+            'observed'=>coreWriterPolicyVisibilitySummary($limits),
+            'reviewed'=>coreWriterPolicyVisibilitySummary($reviewedLimits),
+            'platform_scope_evidence_present'=>trim($policy['platform_scope_evidence'] ?? '') !== '',
+        ], JSON_THROW_ON_ERROR));
+    }
     foreach (['user_timers','running_user_services','queued_at_jobs'] as $key) {
         $expected = $policy['schedulers'][(string)$report['owner_uid']][$key] ?? null;
         if (!is_array($expected) || ($report[$key] ?? null) !== $expected) throw new RuntimeException('Native scheduler state differs.');

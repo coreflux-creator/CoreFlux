@@ -66,6 +66,23 @@ $bad=$report;$bad['current_user_cron']['stdout_sha256']=str_repeat('e',64);
 $refuse(fn()=>$classify($bad,$policy,$runtime),'Changed held cron rejected.');
 $bad=$report;$bad['unresolved']=['process-unreadable-or-changed:11'];$pol=$policy;$pol['reviewed_limits']=$bad['unresolved'];$pol['platform_scope_evidence']='review';
 $refuse(fn()=>$classify($bad,$pol,$runtime),'Process visibility cannot be waived by a policy.');
+$bad=$report;$bad['unresolved']=['process-unreadable-or-changed:11'];
+try{$classify($bad,$policy,$runtime);$check(false,'Changed visibility must refuse.');}
+catch(CoreWriterPoolChanged){$check(false,'Visibility refusal must not become a pool retry.');}
+catch(RuntimeException $e){
+    $detail=json_decode(substr($e->getMessage(),strlen('Writer visibility review differs. ')),true,512,JSON_THROW_ON_ERROR);
+    $check($detail['observed']===['count'=>1,'limits'=>['process-unreadable-or-changed:11']]
+        && $detail['reviewed']===['count'=>0,'limits'=>[]], 'Private refusal identifies the exact changed visibility requirement.');
+}
+$bad=$report;$bad['unresolved']=array_fill(0,10000,'private-command-argument-that-must-not-appear');
+try{$classify($bad,$policy,$runtime);$check(false,'Unrecognized visibility must refuse.');}
+catch(RuntimeException $e){
+    $check(strlen($e->getMessage())<2048 && !str_contains($e->getMessage(),'private-command-argument'),
+        'Visibility refusal is bounded and never reflects arbitrary diagnostic input.');
+    $detail=json_decode(substr($e->getMessage(),strlen('Writer visibility review differs. ')),true,512,JSON_THROW_ON_ERROR);
+    $check($detail['observed']['count']===10000 && count($detail['observed']['limits'])===32,
+        'Large visibility failures retain their count without unbounded detail.');
+}
 $bad=$report;$bad['unresolved']=['registry-unreadable'];$pol=$policy;$pol['reviewed_limits']=$bad['unresolved'];
 $refuse(fn()=>$classify($bad,$pol,$runtime),'Registry exception needs platform scope evidence.');
 $pol['platform_scope_evidence']='Reviewed platform-only certificate cron';
