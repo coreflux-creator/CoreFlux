@@ -49,7 +49,7 @@ final class FullCoreDatabaseTransfer
             'restore' => ['--binary-mode','--skip-reconnect','--local-infile=0','--max-allowed-packet=256M',self::DB],
             default => throw new RuntimeException('Exact native transfer mode required.'),
         };
-        return array_merge(['/usr/bin/timeout','--signal=TERM','--kill-after=5s','1800s',
+        return array_merge(['/usr/bin/timeout','--signal=TERM','--kill-after=5s',self::MAX_TRANSFER_SECONDS . 's',
             $mode === 'capture' ? '/usr/bin/mariadb-dump' : '/usr/bin/mariadb'], $this->arguments, $suffix);
     }
 
