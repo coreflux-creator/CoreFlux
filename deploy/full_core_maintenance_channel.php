@@ -18,7 +18,9 @@ function fullCoreMaintenanceChannelValidate(array $spec): void
         || !is_string($spec['host'] ?? null) || !preg_match('/^[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?$/D', $spec['host'])
         || !is_string($spec['pool'] ?? null) || !preg_match('/^[A-Za-z0-9_.-]+$/D', $spec['pool'])
         || !is_int($spec['expires'] ?? null) || !is_int($spec['issued_at'] ?? null)
-        || $spec['expires'] <= $spec['issued_at'] || $spec['expires'] - $spec['issued_at'] > 14400) {
+        // Leave room for both a long native-owner deployment and its paired recovery.
+        // This bounds the diagnostic credential; individual writer witnesses still expire in 15 seconds.
+        || $spec['expires'] <= $spec['issued_at'] || $spec['expires'] - $spec['issued_at'] > 21600) {
         throw new RuntimeException('Invalid diagnostic target or lifetime.');
     }
 }

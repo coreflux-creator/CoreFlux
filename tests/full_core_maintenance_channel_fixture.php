@@ -11,11 +11,13 @@ $path = 'core-maintenance-' . $operation . '-' . bin2hex(random_bytes(16)) . '.p
 $held = fullCoreMaintenanceWebRule($operation, $path);
 copy(__DIR__ . '/../deploy/full_core_maintenance_channel.php', '/fixture/private/full_core_maintenance_channel.php');
 chmod('/fixture/private/full_core_maintenance_channel.php', 0600);
+$issuedAt = time() - 14401;
 $spec = ['operation' => $operation, 'candidate_commit' => str_repeat('c', 40), 'path' => $path,
     'root' => '/fixture/public_html', 'private_directory' => '/fixture/private', 'host' => 'fixture.local', 'pool' => 'www',
     'token_sha256' => hash('sha256', $token), 'held_web_sha256' => hash('sha256', $held),
     'library_sha256' => hash_file('sha256', '/fixture/private/full_core_maintenance_channel.php'),
-    'issued_at' => time() - 1, 'expires' => time() + 600];
+    // Exercise an authenticated FPM channel beyond the old four-hour limit, within the six-hour bound.
+    'issued_at' => $issuedAt, 'expires' => $issuedAt + 21600];
 file_put_contents('/fixture/public_html/' . $path, fullCoreMaintenanceChannelRender($spec));
 file_put_contents('/fixture/client.json', json_encode(['spec' => $spec, 'token' => $token])); chmod('/fixture/client.json', 0600);
 file_put_contents('/fixture/held.htaccess', $held);
