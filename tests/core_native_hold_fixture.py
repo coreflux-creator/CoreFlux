@@ -33,6 +33,15 @@ class FixtureStatus:
 
     def __call__(self):
         status = self._request({'action': 'status'})
+        count_marker = self.base / 'retired-worker-count.once'
+        if count_marker.is_file():
+            count_marker.unlink()
+            if not status['pool']['request_pool_quiet']:
+                raise AssertionError('Quiet native fixture required before replaying the recorded count transition')
+            status['pool']['total_processes'] += 1
+            status['pool'].update(counts_consistent=False, request_pool_quiet=False)
+            (self.base / 'retired-worker-count-observed.json').write_bytes(encode({'verified_fresh_witness': False}))
+            return status
         marker = self.base / 'recycle-pool-after-status.once'
         if marker.is_file():
             marker.unlink()
@@ -88,6 +97,17 @@ def observer_for(controller, base, uid, *, upgrade=False):
                 assert result['writers']['unmanaged_writers'] == 0
                 evidence['verified_fresh_witness'] = True
                 receipt.write_bytes(encode(evidence))
+                (base / 'retired-worker-count.once').write_text('Replay the recorded production total/list transition on the next witness.')
+        count_receipt = base / 'retired-worker-count-observed.json'
+        if count_receipt.is_file():
+            evidence = json.loads(count_receipt.read_bytes())
+            if not evidence['verified_fresh_witness']:
+                pool = result['web']['pool']
+                assert pool['request_pool_quiet'] and pool['counts_consistent']
+                assert pool['total_processes'] == len(pool['process_ids'])
+                assert result['writers']['unmanaged_writers'] == 0
+                evidence['verified_fresh_witness'] = True
+                count_receipt.write_bytes(encode(evidence))
         return result
     return observe
 

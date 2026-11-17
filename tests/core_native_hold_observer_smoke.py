@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
 from core_release_coordinator import Coordinator, CoreWebPoolChanged, OwnerInterrupted
-from core_native_hold_observer import NativeHoldObserver, MaintenanceStatus
+from core_native_hold_observer import NativeHoldObserver, MaintenanceStatus, CoreRetiredWorkerCount
 from inspect_full_core_release import ROOT, encode
 
 checks = 0
@@ -177,6 +177,66 @@ with patch('core_native_hold_observer.time.time', side_effect=lambda: clock[0]),
         patch('core_native_hold_observer.time.sleep', side_effect=lambda seconds: clock.__setitem__(0, clock[0] + seconds)):
     refuse(lambda: NativeHoldObserver(slow, binding, web)(query), 'A complete second sample cannot reset the original fifteen-second deadline')
 check(len(slow.runtimes) == 3, 'Stale resampling never asks for a third native attempt')
+
+def retired_count():
+    # Recorded live failure: one detailed worker, active=1, idle=0, total=2.
+    state = web()
+    state['pool'].update(process_ids=[300], other_idle_processes=0, total_processes=2,
+                         counts_consistent=False, request_pool_quiet=False)
+    return state
+
+samples = []
+def retirement_then_quiet():
+    state = retired_count() if not samples else web()
+    samples.append(state)
+    return state
+fresh_native = ChangingPool(999)
+with patch('core_native_hold_observer.time.sleep') as pause:
+    result = NativeHoldObserver(fresh_native, binding, retirement_then_quiet)(query)
+check(len(samples) == 2 and pause.call_count == 1 and result['web']['pool']['request_pool_quiet'],
+      'Recorded retired-worker total requests one fresh observation, never acceptance of the inconsistent snapshot')
+check(len(fresh_native.runtimes) == 2 and all(r['pool_pids'] == [300, 301] for r in fresh_native.runtimes),
+      'Both native owners bind only the new complete quiet inventory')
+for field, value in [('listen_queue', 1), ('other_busy_processes', 1), ('active_processes', 2),
+                     ('total_processes', 3), ('total_processes', 2.0), ('other_idle_processes', True),
+                     ('accepted_connections', True), ('self_process_count', True), ('pool_matches', False),
+                     ('self_running', False), ('self_script_matches', False), ('counts_consistent', True),
+                     ('request_pool_quiet', True), ('process_ids', [True]), ('process_ids', [300,300])]:
+    state = retired_count(); state['pool'][field] = value
+    native = FakeCoordinator()
+    with patch('core_native_hold_observer.time.sleep') as pause:
+        refuse(lambda: NativeHoldObserver(native, binding, lambda: state)(query),
+               'Activity, identity changes, malformed counts and different mismatches cannot request retirement resampling')
+    check(not pause.called and not native.calls, 'Non-retirement failures stop before native evidence without retry')
+native = FakeCoordinator()
+with patch('core_native_hold_observer.time.sleep') as pause:
+    refuse(lambda: NativeHoldObserver(native, binding, retired_count)(query), 'Persistent retired total refuses the witness')
+check(pause.call_count == 1 and not native.calls, 'Persistent discrepancy gets exactly two web samples and no native positive proof')
+with patch('core_native_hold_observer.time.time', side_effect=[1000,1007]), \
+        patch.object(NativeHoldObserver, '_observe', side_effect=CoreRetiredWorkerCount('retired')) as sample, \
+        patch('core_native_hold_observer.time.sleep') as pause:
+    refuse(lambda: NativeHoldObserver(FakeCoordinator(), binding, web)(query), 'Late retirement cannot reset the freshness budget')
+check(sample.call_count == 1 and not pause.called, 'Retirement resampling uses the original allowance')
+samples.clear(); native = FakeCoordinator()
+native.mutate = lambda r: r['writers'].update(unmanaged_writers=1)
+with patch('core_native_hold_observer.time.sleep'):
+    refuse(lambda: NativeHoldObserver(native, binding, retirement_then_quiet)(query),
+           'A fresh quiet pool never substitutes for the independent unknown-writer check')
+check(len(samples) == 2 and len(native.calls) == 1, 'Native writer refusal after the fresh read remains terminal')
+state = web(); state['pool'].update(active_processes='private-sentinel', private_detail='private-sentinel')
+try:
+    NativeHoldObserver(FakeCoordinator(), binding, lambda: state)(query)
+    check(False, 'Malformed activity must fail')
+except ValueError as error:
+    check('reported_worker_count' in str(error) and 'private-sentinel' not in str(error),
+          'Refusal explains numeric pool state without echoing malformed or private content')
+samples.clear(); native = ChangingPool(1)
+with patch('core_native_hold_observer.time.sleep') as pause:
+    try:
+        NativeHoldObserver(native, binding, retirement_then_quiet)(query)
+        check(False, 'Two different pool transitions must refuse')
+    except CoreWebPoolChanged:
+        check(len(samples) == 2 and pause.call_count == 1, 'Counter resampling and PID resampling share one total retry')
 
 for field, value in [('request_pool_quiet', False), ('process_ids', [300, 300]), ('process_ids', [True, 301]),
                      ('process_ids', []), ('total_processes', 3), ('other_busy_processes', 1)]:

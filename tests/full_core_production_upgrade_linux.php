@@ -758,5 +758,8 @@ if (getenv('CORE_FIXTURE_NATIVE_WRITERS') === '1') {
     $recycled = json_decode((string)file_get_contents($base . '/pool-recycle-observed.json'), true, 512, JSON_THROW_ON_ERROR);
     $check(($recycled['verified_fresh_witness'] ?? false) === true && !file_exists($base . '/recycle-pool-after-status.once'),
         'actual retired FPM worker forces a complete fresh web and two-owner witness before proceeding');
+    $counted = json_decode((string)file_get_contents($base . '/retired-worker-count-observed.json'), true, 512, JSON_THROW_ON_ERROR);
+    $check(($counted['verified_fresh_witness'] ?? false) === true && !file_exists($base . '/retired-worker-count.once'),
+        'recorded retired-worker count is discarded before fresh actual FPM and both native owners permit continuation');
 }
 echo "PASS combined production-shaped fixture $scenario: $checks checks; no live application or external network\n";

@@ -19,6 +19,10 @@ from inspect_full_core_release import ROOT, encode, exact_hex
 from core_release_coordinator import CoreWebPoolChanged
 
 
+class CoreRetiredWorkerCount(ValueError):
+    """A complete idle worker list precedes one retired worker's aggregate removal."""
+
+
 class MaintenanceStatus:
     """Single exact HTTPS endpoint; no redirects, cookies, environment proxies or token logs."""
     def __init__(self, url: str, token: str, operation: str):
@@ -129,7 +133,14 @@ class NativeHoldObserver:
                                                'counts_consistent', 'request_pool_quiet')) or any(
                 pool.get(k) != v for k, v in {'self_process_count': 1, 'listen_queue': 0,
                                              'other_busy_processes': 0, 'active_processes': 1}.items()):
-            raise ValueError('Core request pool is not quiet')
+            if self._retired_worker_count(pool):
+                raise CoreRetiredWorkerCount('Core pool total still includes one retired worker')
+            fields = ('pool_matches', 'self_running', 'self_script_matches', 'self_process_count',
+                      'listen_queue', 'other_busy_processes', 'other_idle_processes',
+                      'active_processes', 'total_processes', 'counts_consistent', 'request_pool_quiet')
+            detail = {k: pool.get(k) if type(pool.get(k)) in (int, bool) else 'invalid-type' for k in fields}
+            detail['reported_worker_count'] = len(pool['process_ids']) if isinstance(pool.get('process_ids'), list) else 'invalid-type'
+            raise ValueError('Core request pool is not quiet: ' + json.dumps(detail, sort_keys=True))
         pids = pool.get('process_ids')
         if (not isinstance(pids, list) or not pids or any(type(pid) is not int or pid < 1 for pid in pids)
                 or len(pids) != len(set(pids)) or len(pids) != pool.get('total_processes')
@@ -137,6 +148,26 @@ class NativeHoldObserver:
                 or type(pool.get('accepted_connections')) is not int or pool['accepted_connections'] < 1):
             raise ValueError('Complete authenticated Core worker PIDs required')
         return pids
+
+    @staticmethod
+    def _retired_worker_count(pool: dict) -> bool:
+        # Observed on managed FPM: the old child has left the detailed inventory,
+        # but the parent's total is still one higher. Never accept this snapshot.
+        # Only this exact discrepancy can request a fresh complete observation;
+        # queued work, a busy peer, wrong identity or malformed counts still stop.
+        pids = pool.get('process_ids')
+        if (not isinstance(pids, list) or not pids or len(pids) > 1024
+                or any(type(pid) is not int or pid < 1 for pid in pids) or len(set(pids)) != len(pids)):
+            return False
+        if any(pool.get(k) is not True for k in ('pool_matches', 'self_running', 'self_script_matches')):
+            return False
+        if pool.get('counts_consistent') is not False or pool.get('request_pool_quiet') is not False:
+            return False
+        expected = {'self_process_count': 1, 'listen_queue': 0, 'other_busy_processes': 0,
+                    'other_idle_processes': len(pids) - 1, 'active_processes': 1,
+                    'total_processes': len(pids) + 1}
+        return (all(type(pool.get(k)) is int and pool[k] == v for k, v in expected.items())
+                and type(pool.get('accepted_connections')) is int and pool['accepted_connections'] > 0)
 
     def __call__(self, query: dict) -> dict:
         started = time.time()
@@ -154,9 +185,10 @@ class NativeHoldObserver:
         for attempt in range(2):
             try:
                 return self._observe(query, own, other, started)
-            except CoreWebPoolChanged:
+            except (CoreWebPoolChanged, CoreRetiredWorkerCount):
                 # FPM may retire or spawn a child between HTTPS and the two SSH
-                # observations. Discard the whole partial witness and sample all
+                # observations, or briefly retain the retired child in its total.
+                # Discard the whole partial witness and sample all
                 # three again, once, within the original 15-second freshness bound.
                 # All other native refusals remain terminal; no phase is replayed.
                 if attempt or time.time() - started >= 7:
